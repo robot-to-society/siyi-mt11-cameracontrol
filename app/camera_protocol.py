@@ -129,13 +129,13 @@ class CameraClient:
         self._send_raw(packet)
 
     def request_status(self) -> None:
-        self.send_cmd(cmd_id=0x0A, data=b"", ctrl=0x00)
+        self.send_cmd(cmd_id=0x0A, data=b"", ctrl=0x01)
 
     def request_zoom_level(self) -> None:
-        self.send_cmd(cmd_id=0x18, data=b"", ctrl=0x00)
+        self.send_cmd(cmd_id=0x18, data=b"", ctrl=0x01)
 
     def request_video_mode(self) -> None:
-        self.send_cmd(cmd_id=0x10, data=b"", ctrl=0x00)
+        self.send_cmd(cmd_id=0x10, data=b"", ctrl=0x01)
 
     def set_absolute_zoom(self, zoom: float) -> None:
         clamped = max(1.0, min(zoom, self.state.zoom_max))
