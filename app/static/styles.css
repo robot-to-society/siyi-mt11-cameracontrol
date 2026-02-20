@@ -1,0 +1,208 @@
+:root {
+  --bg-0: #090b10;
+  --bg-1: #131821;
+  --bg-2: #1a2230;
+  --line: #2d3442;
+  --text: #e7ebf1;
+  --muted: #8f98ab;
+  --accent: #ff4d5c;
+  --ok: #43d39e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(1200px 800px at 10% 10%, #1d2635 0%, transparent 60%),
+    radial-gradient(900px 600px at 90% 80%, #171d2a 0%, transparent 60%),
+    linear-gradient(180deg, var(--bg-1), var(--bg-0));
+}
+
+.bg-noise {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.2;
+  background-image: radial-gradient(#ffffff 0.55px, transparent 0.55px);
+  background-size: 5px 5px;
+}
+
+.panel {
+  width: min(92vw, 520px);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 22px;
+  background: linear-gradient(170deg, rgba(26, 34, 48, 0.76), rgba(9, 11, 16, 0.88));
+  backdrop-filter: blur(8px);
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.45);
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--muted);
+}
+
+h1 {
+  margin: 6px 0 0;
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.status-badge {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.status-badge.recording {
+  color: #fff;
+  border-color: #5d2430;
+  background: rgba(255, 77, 92, 0.3);
+}
+
+.status-badge.idle {
+  background: rgba(67, 211, 158, 0.13);
+  border-color: #20483a;
+  color: #9ee7cb;
+}
+
+.status-badge.error {
+  background: rgba(255, 180, 0, 0.14);
+  border-color: #5c4d22;
+  color: #ffdc81;
+}
+
+.ip-section {
+  margin-top: 20px;
+}
+
+label {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ip-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
+input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(9, 11, 16, 0.7);
+  color: var(--text);
+  outline: none;
+}
+
+input:focus {
+  border-color: #4b617f;
+  box-shadow: 0 0 0 3px rgba(75, 97, 127, 0.22);
+}
+
+.ghost-btn {
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.controls {
+  margin-top: 20px;
+  display: flex;
+  gap: 14px;
+}
+
+.record-btn,
+.shutter-btn {
+  flex: 1;
+  border: 0;
+  border-radius: 16px;
+  padding: 16px 14px;
+  cursor: pointer;
+  font-size: 16px;
+  color: #fff;
+}
+
+.record-btn {
+  background: linear-gradient(180deg, #ff5f6d, #cc2f4a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.record-btn.recording {
+  animation: recPulse 1.2s infinite;
+}
+
+.record-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.shutter-btn {
+  background: linear-gradient(180deg, #2a3242, #1b2130);
+  border: 1px solid #2f3748;
+}
+
+.record-btn:active,
+.shutter-btn:active,
+.ghost-btn:active {
+  transform: translateY(1px) scale(0.995);
+}
+
+.muted {
+  margin: 8px 2px 0;
+  min-height: 20px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+@keyframes recPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 77, 92, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 16px rgba(255, 77, 92, 0);
+  }
+}
+
+@media (max-width: 540px) {
+  .panel {
+    border-radius: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+}

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MT11 Camera Control</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="bg-noise"></div>
+    <main class="panel">
+      <header class="topbar">
+        <div class="brand">
+          <p class="eyebrow">MT11 CONTROL</p>
+          <h1>Capture Console</h1>
+        </div>
+        <div id="status-badge" class="status-badge idle">IDLE</div>
+      </header>
+
+      <section class="ip-section">
+        <label for="camera-ip">Camera IP</label>
+        <div class="ip-row">
+          <input id="camera-ip" type="text" value="192.168.144.25" />
+          <button id="apply-ip" class="ghost-btn">Apply</button>
+        </div>
+        <p id="connection-text" class="muted">接続状態を確認中...</p>
+      </section>
+
+      <section class="controls">
+        <button id="record-btn" class="record-btn" aria-label="record toggle">
+          <span class="record-dot"></span>
+          <span id="record-label">Start Rec</span>
+        </button>
+        <button id="shutter-btn" class="shutter-btn" aria-label="trigger photo">
+          <span>Shutter</span>
+        </button>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
