@@ -56,17 +56,13 @@ function setStatusUI(data) {
   }
 
   const currentZoom = Number(data.zoom_current ?? 1);
-  const zoomReady = Boolean(data.zoom_ready);
   const maxZoom = Math.max(1, Math.floor(Number(data.zoom_max ?? 1)));
-  zoomSection.classList.toggle("hidden", !zoomReady);
-  if (zoomReady) {
-    zoomBar.max = String(maxZoom);
-    zoomValue.textContent = `${currentZoom.toFixed(1)}x`;
-    zoomMaxValue.textContent = `${Number(data.zoom_max).toFixed(1)}x`;
-    zoomBar.disabled = false;
-    zoomDecBtn.disabled = currentZoom <= 1.0;
-    zoomIncBtn.disabled = currentZoom >= maxZoom;
-  }
+  zoomBar.max = String(maxZoom);
+  zoomValue.textContent = `${currentZoom.toFixed(1)}x`;
+  zoomMaxValue.textContent = `${Number(data.zoom_max).toFixed(1)}x`;
+  zoomBar.disabled = false;
+  zoomDecBtn.disabled = currentZoom <= 1.0;
+  zoomIncBtn.disabled = currentZoom >= maxZoom;
 
   const currentMode = data.video_mode || "custom";
   const modeLabelMap = {
