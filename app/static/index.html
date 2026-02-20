@@ -36,14 +36,15 @@
         </button>
       </section>
 
-      <section class="zoom-section">
+      <section class="zoom-section hidden" id="zoom-section">
         <div class="zoom-head">
           <span>Zoom</span>
           <span id="zoom-value">1.0x</span>
         </div>
+        <p class="zoom-max">Max: <span id="zoom-max-value">-</span></p>
         <div class="zoom-row">
           <button id="zoom-dec-btn" class="zoom-btn" aria-label="zoom out">−</button>
-          <input id="zoom-bar" type="range" min="1" max="30" step="1" value="1" disabled />
+          <input id="zoom-bar" type="range" min="1" max="30" step="1" value="1" />
           <button id="zoom-inc-btn" class="zoom-btn" aria-label="zoom in">＋</button>
         </div>
       </section>

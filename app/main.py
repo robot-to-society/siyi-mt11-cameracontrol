@@ -25,14 +25,19 @@ class VideoModePayload(BaseModel):
     mode: str
 
 
+class ZoomSetPayload(BaseModel):
+    zoom: float
+
+
 def background_status_loop() -> None:
     tick = 0
     while True:
         try:
             camera.request_status()
             camera.request_zoom_level()
-            if tick % 10 == 0:
+            if camera.state.zoom_max is None or tick % 10 == 0:
                 camera.request_zoom_range()
+            if tick % 10 == 0:
                 camera.request_video_mode()
             tick += 1
         except Exception:  # noqa: BLE001
@@ -72,6 +77,7 @@ def get_status() -> dict:
         "record_text": record_map.get(camera.state.record_sta, "unknown"),
         "zoom_current": camera.state.zoom_current,
         "zoom_max": camera.state.zoom_max,
+        "zoom_ready": camera.state.zoom_max is not None,
         "video_mode": camera.state.video_mode_name,
         "video_mode_main": camera.state.video_mode_main,
         "video_mode_sub": camera.state.video_mode_sub,
@@ -143,6 +149,21 @@ def zoom_dec() -> dict:
         time.sleep(0.12)
         camera.request_zoom_level()
         return {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/zoom/set")
+def zoom_set(payload: ZoomSetPayload) -> dict:
+    try:
+        if payload.zoom < 1.0:
+            raise HTTPException(status_code=400, detail="zoom must be >= 1.0")
+        camera.set_absolute_zoom(payload.zoom)
+        time.sleep(0.12)
+        camera.request_zoom_level()
+        return {"ok": True, "zoom": payload.zoom}
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

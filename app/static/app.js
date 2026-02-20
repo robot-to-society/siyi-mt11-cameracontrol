@@ -5,7 +5,9 @@ const applyIpBtn = document.getElementById("apply-ip");
 const recordBtn = document.getElementById("record-btn");
 const recordLabel = document.getElementById("record-label");
 const shutterBtn = document.getElementById("shutter-btn");
+const zoomSection = document.getElementById("zoom-section");
 const zoomValue = document.getElementById("zoom-value");
+const zoomMaxValue = document.getElementById("zoom-max-value");
 const zoomBar = document.getElementById("zoom-bar");
 const zoomIncBtn = document.getElementById("zoom-inc-btn");
 const zoomDecBtn = document.getElementById("zoom-dec-btn");
@@ -54,12 +56,18 @@ function setStatusUI(data) {
   }
 
   const currentZoom = Number(data.zoom_current ?? 1);
-  const maxZoom = Math.max(1, Math.floor(Number(data.zoom_max ?? 30)));
-  zoomBar.max = String(maxZoom);
-  zoomBar.value = String(Math.max(1, Math.min(maxZoom, Math.round(currentZoom))));
-  zoomValue.textContent = `${currentZoom.toFixed(1)}x`;
-  zoomDecBtn.disabled = currentZoom <= 1.0;
-  zoomIncBtn.disabled = currentZoom >= maxZoom;
+  const zoomReady = Boolean(data.zoom_ready);
+  const maxZoom = Math.max(1, Math.floor(Number(data.zoom_max ?? 1)));
+  zoomSection.classList.toggle("hidden", !zoomReady);
+  if (zoomReady) {
+    zoomBar.max = String(maxZoom);
+    zoomBar.value = String(Math.max(1, Math.min(maxZoom, Math.round(currentZoom))));
+    zoomValue.textContent = `${currentZoom.toFixed(1)}x`;
+    zoomMaxValue.textContent = `${Number(data.zoom_max).toFixed(1)}x`;
+    zoomBar.disabled = false;
+    zoomDecBtn.disabled = currentZoom <= 1.0;
+    zoomIncBtn.disabled = currentZoom >= maxZoom;
+  }
 
   const currentMode = data.video_mode || "custom";
   const modeLabelMap = {
@@ -147,6 +155,24 @@ zoomDecBtn.addEventListener("click", async () => {
     connectionText.textContent = `Zoom error: ${e}`;
   } finally {
     zoomDecBtn.disabled = false;
+  }
+});
+
+zoomBar.addEventListener("input", () => {
+  const v = Number(zoomBar.value || "1");
+  zoomValue.textContent = `${v.toFixed(1)}x`;
+});
+
+zoomBar.addEventListener("change", async () => {
+  const targetZoom = Number(zoomBar.value || "1");
+  try {
+    zoomBar.disabled = true;
+    await postJSON("/api/zoom/set", { zoom: targetZoom });
+    await refreshStatus();
+  } catch (e) {
+    connectionText.textContent = `Zoom error: ${e}`;
+  } finally {
+    zoomBar.disabled = false;
   }
 });
 
