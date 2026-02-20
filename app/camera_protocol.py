@@ -34,6 +34,11 @@ def make_packet(cmd_id: int, data: bytes = b"", ctrl: int = 0x01, seq: int = 0) 
 @dataclass
 class CameraState:
     record_sta: int = 0
+    zoom_current: float = 1.0
+    zoom_max: float = 30.0
+    video_mode_main: int = 0
+    video_mode_sub: int = 2
+    video_mode_name: str = "rgb"
     last_feedback: Optional[int] = None
     last_error: Optional[str] = None
     connected: bool = False
@@ -126,6 +131,48 @@ class CameraClient:
     def request_status(self) -> None:
         self.send_cmd(cmd_id=0x0A, data=b"", ctrl=0x00)
 
+    def request_zoom_range(self) -> None:
+        self.send_cmd(cmd_id=0x16, data=b"", ctrl=0x00)
+
+    def request_zoom_level(self) -> None:
+        self.send_cmd(cmd_id=0x18, data=b"", ctrl=0x00)
+
+    def request_video_mode(self) -> None:
+        self.send_cmd(cmd_id=0x10, data=b"", ctrl=0x00)
+
+    def set_absolute_zoom(self, zoom: float) -> None:
+        clamped = max(1.0, min(zoom, self.state.zoom_max))
+        int_part = int(clamped)
+        float_part = int(round((clamped - int_part) * 10.0))
+        if float_part > 9:
+            int_part += 1
+            float_part = 0
+        payload = struct.pack("<BB", int_part, float_part)
+        self.send_cmd(cmd_id=0x0F, data=payload, ctrl=0x01)
+
+    def zoom_in_step(self, step: float = 1.0) -> None:
+        self.set_absolute_zoom(self.state.zoom_current + step)
+
+    def zoom_out_step(self, step: float = 1.0) -> None:
+        self.set_absolute_zoom(self.state.zoom_current - step)
+
+    def set_video_mode(self, main_stream: int, sub_stream: int) -> None:
+        payload = struct.pack("<BB", main_stream & 0xFF, sub_stream & 0xFF)
+        self.send_cmd(cmd_id=0x11, data=payload, ctrl=0x01)
+
+    def set_video_mode_preset(self, preset: str) -> None:
+        key = preset.strip().lower()
+        # The spec text has minor inconsistencies; these pairs follow Chapter 4 examples.
+        presets = {
+            "rgb": (0x00, 0x02),   # Main: wide-angle (RGB), Sub: thermal
+            "thermal": (0x02, 0x00),  # Main: thermal, Sub: wide-angle
+            "side_by_side": (0x03, 0x02),  # Main: wide-angle + thermal
+        }
+        if key not in presets:
+            raise ValueError(f"unsupported video mode preset: {preset}")
+        main_stream, sub_stream = presets[key]
+        self.set_video_mode(main_stream, sub_stream)
+
     def trigger_photo(self) -> None:
         self.send_cmd(cmd_id=0x0C, data=b"\x00", ctrl=0x01)
 
@@ -216,4 +263,26 @@ class CameraClient:
                 self.state.record_sta = 1
             elif payload[0] == 6:
                 self.state.record_sta = 0
+            self._notify_state_change()
+        elif cmd_id == 0x16 and len(payload) >= 2:
+            self.state.zoom_max = float(payload[0]) + (float(payload[1]) / 10.0)
+            self._notify_state_change()
+        elif cmd_id == 0x18 and len(payload) >= 2:
+            self.state.zoom_current = float(payload[0]) + (float(payload[1]) / 10.0)
+            self._notify_state_change()
+        elif cmd_id in (0x10, 0x11) and len(payload) >= 2:
+            self.state.video_mode_main = payload[0]
+            self.state.video_mode_sub = payload[1]
+            mode_map = {
+                (0, 2): "rgb",
+                (2, 0): "thermal",
+                (3, 2): "side_by_side",
+                (1, 2): "rgb",
+                (2, 1): "thermal",
+                (4, 2): "side_by_side",
+            }
+            self.state.video_mode_name = mode_map.get(
+                (self.state.video_mode_main, self.state.video_mode_sub),
+                "custom",
+            )
             self._notify_state_change()

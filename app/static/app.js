@@ -5,6 +5,12 @@ const applyIpBtn = document.getElementById("apply-ip");
 const recordBtn = document.getElementById("record-btn");
 const recordLabel = document.getElementById("record-label");
 const shutterBtn = document.getElementById("shutter-btn");
+const zoomValue = document.getElementById("zoom-value");
+const zoomBar = document.getElementById("zoom-bar");
+const zoomIncBtn = document.getElementById("zoom-inc-btn");
+const zoomDecBtn = document.getElementById("zoom-dec-btn");
+const videoModeValue = document.getElementById("video-mode-value");
+const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
 
 let recordState = "idle";
 
@@ -45,6 +51,26 @@ function setStatusUI(data) {
     statusBadge.className = "status-badge error";
     recordBtn.classList.remove("recording");
     recordLabel.textContent = "Record";
+  }
+
+  const currentZoom = Number(data.zoom_current ?? 1);
+  const maxZoom = Math.max(1, Math.floor(Number(data.zoom_max ?? 30)));
+  zoomBar.max = String(maxZoom);
+  zoomBar.value = String(Math.max(1, Math.min(maxZoom, Math.round(currentZoom))));
+  zoomValue.textContent = `${currentZoom.toFixed(1)}x`;
+  zoomDecBtn.disabled = currentZoom <= 1.0;
+  zoomIncBtn.disabled = currentZoom >= maxZoom;
+
+  const currentMode = data.video_mode || "custom";
+  const modeLabelMap = {
+    rgb: "RGB",
+    thermal: "THERMAL",
+    side_by_side: "SIDE BY SIDE",
+    custom: "CUSTOM",
+  };
+  videoModeValue.textContent = modeLabelMap[currentMode] || "CUSTOM";
+  for (const btn of modeButtons) {
+    btn.classList.toggle("active", btn.dataset.mode === currentMode);
   }
 }
 
@@ -99,6 +125,46 @@ shutterBtn.addEventListener("click", async () => {
     shutterBtn.disabled = false;
   }
 });
+
+zoomIncBtn.addEventListener("click", async () => {
+  try {
+    zoomIncBtn.disabled = true;
+    await postJSON("/api/zoom/inc");
+    await refreshStatus();
+  } catch (e) {
+    connectionText.textContent = `Zoom error: ${e}`;
+  } finally {
+    zoomIncBtn.disabled = false;
+  }
+});
+
+zoomDecBtn.addEventListener("click", async () => {
+  try {
+    zoomDecBtn.disabled = true;
+    await postJSON("/api/zoom/dec");
+    await refreshStatus();
+  } catch (e) {
+    connectionText.textContent = `Zoom error: ${e}`;
+  } finally {
+    zoomDecBtn.disabled = false;
+  }
+});
+
+for (const btn of modeButtons) {
+  btn.addEventListener("click", async () => {
+    const mode = btn.dataset.mode;
+    if (!mode) return;
+    try {
+      btn.disabled = true;
+      await postJSON("/api/video-mode", { mode });
+      await refreshStatus();
+    } catch (e) {
+      connectionText.textContent = `Video mode error: ${e}`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
 
 refreshStatus();
 setInterval(refreshStatus, 1000);

@@ -35,6 +35,30 @@
           <span>Shutter</span>
         </button>
       </section>
+
+      <section class="zoom-section">
+        <div class="zoom-head">
+          <span>Zoom</span>
+          <span id="zoom-value">1.0x</span>
+        </div>
+        <div class="zoom-row">
+          <button id="zoom-dec-btn" class="zoom-btn" aria-label="zoom out">−</button>
+          <input id="zoom-bar" type="range" min="1" max="30" step="1" value="1" disabled />
+          <button id="zoom-inc-btn" class="zoom-btn" aria-label="zoom in">＋</button>
+        </div>
+      </section>
+
+      <section class="mode-section">
+        <div class="mode-head">
+          <span>映像タイプ</span>
+          <span id="video-mode-value">RGB</span>
+        </div>
+        <div class="mode-buttons">
+          <button class="mode-btn active" data-mode="rgb" id="mode-rgb-btn">RGB映像</button>
+          <button class="mode-btn" data-mode="thermal" id="mode-thermal-btn">サーマル映像</button>
+          <button class="mode-btn" data-mode="side_by_side" id="mode-sbs-btn">サイド・バイ・サイド</button>
+        </div>
+      </section>
     </main>
 
     <script src="/static/app.js"></script>

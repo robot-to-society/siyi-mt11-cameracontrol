@@ -187,6 +187,116 @@ input:focus {
   font-size: 13px;
 }
 
+.zoom-section {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(9, 11, 16, 0.36);
+}
+
+.mode-section {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(9, 11, 16, 0.36);
+}
+
+.mode-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+#video-mode-value {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.mode-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.mode-btn {
+  height: 38px;
+  border: 1px solid #3a4253;
+  border-radius: 10px;
+  background: #1d2332;
+  color: #d9e1f0;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mode-btn.active {
+  border-color: #6f88af;
+  background: linear-gradient(180deg, #32415c, #28344a);
+  color: #ffffff;
+}
+
+.zoom-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+#zoom-value {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.zoom-row {
+  display: grid;
+  grid-template-columns: 42px 1fr 42px;
+  gap: 10px;
+  align-items: center;
+}
+
+.zoom-btn {
+  height: 38px;
+  border: 1px solid #3a4253;
+  border-radius: 10px;
+  background: #202738;
+  color: #dbe3f2;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+#zoom-bar {
+  width: 100%;
+  height: 8px;
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #263144, #5a6d8f);
+}
+
+#zoom-bar::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #2d3750;
+}
+
+#zoom-bar::-moz-range-thumb {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #2d3750;
+}
+
 @keyframes recPulse {
   0%,
   100% {

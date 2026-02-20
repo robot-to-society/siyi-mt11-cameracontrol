@@ -21,10 +21,20 @@ class CameraIpPayload(BaseModel):
     ip: str
 
 
+class VideoModePayload(BaseModel):
+    mode: str
+
+
 def background_status_loop() -> None:
+    tick = 0
     while True:
         try:
             camera.request_status()
+            camera.request_zoom_level()
+            if tick % 10 == 0:
+                camera.request_zoom_range()
+                camera.request_video_mode()
+            tick += 1
         except Exception:  # noqa: BLE001
             try:
                 camera.reconnect()
@@ -60,6 +70,11 @@ def get_status() -> dict:
         "connected": camera.state.connected,
         "record_sta": camera.state.record_sta,
         "record_text": record_map.get(camera.state.record_sta, "unknown"),
+        "zoom_current": camera.state.zoom_current,
+        "zoom_max": camera.state.zoom_max,
+        "video_mode": camera.state.video_mode_name,
+        "video_mode_main": camera.state.video_mode_main,
+        "video_mode_sub": camera.state.video_mode_sub,
         "last_feedback": camera.state.last_feedback,
         "last_error": camera.state.last_error,
         "updated_at": camera.state.updated_at,
@@ -104,6 +119,45 @@ def set_camera_ip(payload: CameraIpPayload) -> dict:
         raise HTTPException(status_code=400, detail="ip is required")
     camera.configure_host(ip)
     return {"ok": True, "ip": ip}
+
+
+@app.post("/api/zoom/inc")
+def zoom_inc() -> dict:
+    try:
+        camera.request_zoom_level()
+        time.sleep(0.1)
+        camera.zoom_in_step(1.0)
+        time.sleep(0.12)
+        camera.request_zoom_level()
+        return {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/zoom/dec")
+def zoom_dec() -> dict:
+    try:
+        camera.request_zoom_level()
+        time.sleep(0.1)
+        camera.zoom_out_step(1.0)
+        time.sleep(0.12)
+        camera.request_zoom_level()
+        return {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/video-mode")
+def set_video_mode(payload: VideoModePayload) -> dict:
+    try:
+        camera.set_video_mode_preset(payload.mode)
+        time.sleep(0.12)
+        camera.request_video_mode()
+        return {"ok": True, "mode": payload.mode}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
