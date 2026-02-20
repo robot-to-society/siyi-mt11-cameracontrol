@@ -31,18 +31,10 @@ class ZoomSetPayload(BaseModel):
 
 def background_status_loop() -> None:
     tick = 0
-    last_zoom_range_request_at = 0.0
     while True:
         try:
             camera.request_status()
             camera.request_zoom_level()
-            now = time.monotonic()
-            if camera.state.zoom_max is None and (now - last_zoom_range_request_at) >= 5.0:
-                camera.request_zoom_range()
-                last_zoom_range_request_at = now
-            elif tick % 10 == 0:
-                camera.request_zoom_range()
-                last_zoom_range_request_at = now
             if tick % 10 == 0:
                 camera.request_video_mode()
             tick += 1
@@ -83,7 +75,7 @@ def get_status() -> dict:
         "record_text": record_map.get(camera.state.record_sta, "unknown"),
         "zoom_current": camera.state.zoom_current,
         "zoom_max": camera.state.zoom_max,
-        "zoom_ready": camera.state.zoom_max is not None,
+        "zoom_ready": True,
         "video_mode": camera.state.video_mode_name,
         "video_mode_main": camera.state.video_mode_main,
         "video_mode_sub": camera.state.video_mode_sub,

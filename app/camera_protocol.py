@@ -35,7 +35,7 @@ def make_packet(cmd_id: int, data: bytes = b"", ctrl: int = 0x01, seq: int = 0) 
 class CameraState:
     record_sta: int = 0
     zoom_current: float = 1.0
-    zoom_max: Optional[float] = None
+    zoom_max: float = 165.0
     video_mode_main: int = 0
     video_mode_sub: int = 2
     video_mode_name: str = "rgb"
@@ -131,9 +131,6 @@ class CameraClient:
     def request_status(self) -> None:
         self.send_cmd(cmd_id=0x0A, data=b"", ctrl=0x00)
 
-    def request_zoom_range(self) -> None:
-        self.send_cmd(cmd_id=0x16, data=b"", ctrl=0x00)
-
     def request_zoom_level(self) -> None:
         self.send_cmd(cmd_id=0x18, data=b"", ctrl=0x00)
 
@@ -141,8 +138,7 @@ class CameraClient:
         self.send_cmd(cmd_id=0x10, data=b"", ctrl=0x00)
 
     def set_absolute_zoom(self, zoom: float) -> None:
-        max_zoom = self.state.zoom_max if self.state.zoom_max and self.state.zoom_max >= 1.0 else 30.0
-        clamped = max(1.0, min(zoom, max_zoom))
+        clamped = max(1.0, min(zoom, self.state.zoom_max))
         int_part = int(clamped)
         float_part = int(round((clamped - int_part) * 10.0))
         if float_part > 9:
@@ -264,9 +260,6 @@ class CameraClient:
                 self.state.record_sta = 1
             elif payload[0] == 6:
                 self.state.record_sta = 0
-            self._notify_state_change()
-        elif cmd_id == 0x16 and len(payload) >= 2:
-            self.state.zoom_max = float(payload[0]) + (float(payload[1]) / 10.0)
             self._notify_state_change()
         elif cmd_id == 0x18 and len(payload) >= 2:
             self.state.zoom_current = float(payload[0]) + (float(payload[1]) / 10.0)

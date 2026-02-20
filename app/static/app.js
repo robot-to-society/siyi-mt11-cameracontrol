@@ -61,7 +61,6 @@ function setStatusUI(data) {
   zoomSection.classList.toggle("hidden", !zoomReady);
   if (zoomReady) {
     zoomBar.max = String(maxZoom);
-    zoomBar.value = String(Math.max(1, Math.min(maxZoom, Math.round(currentZoom))));
     zoomValue.textContent = `${currentZoom.toFixed(1)}x`;
     zoomMaxValue.textContent = `${Number(data.zoom_max).toFixed(1)}x`;
     zoomBar.disabled = false;
@@ -156,11 +155,6 @@ zoomDecBtn.addEventListener("click", async () => {
   } finally {
     zoomDecBtn.disabled = false;
   }
-});
-
-zoomBar.addEventListener("input", () => {
-  const v = Number(zoomBar.value || "1");
-  zoomValue.textContent = `${v.toFixed(1)}x`;
 });
 
 zoomBar.addEventListener("change", async () => {
