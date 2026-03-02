@@ -17,49 +17,116 @@
         <div id="status-badge" class="status-badge idle">IDLE</div>
       </header>
 
-      <section class="ip-section">
-        <label for="camera-ip">Camera IP</label>
-        <div class="ip-row">
-          <input id="camera-ip" type="text" value="192.168.144.25" />
-          <button id="apply-ip" class="ghost-btn">Apply</button>
-        </div>
-        <p id="connection-text" class="muted">接続状態を確認中...</p>
-      </section>
+      <nav class="tab-bar">
+        <button class="tab-btn active" data-tab="camera">Camera</button>
+        <button class="tab-btn" data-tab="joystick">Joystick</button>
+      </nav>
 
-      <section class="controls">
-        <button id="record-btn" class="record-btn" aria-label="record toggle">
-          <span class="record-dot"></span>
-          <span id="record-label">Start Rec</span>
-        </button>
-        <button id="shutter-btn" class="shutter-btn" aria-label="trigger photo">
-          <span>Shutter</span>
-        </button>
-      </section>
+      <div id="tab-camera">
+        <section class="ip-section">
+          <label for="camera-ip">Camera IP</label>
+          <div class="ip-row">
+            <input id="camera-ip" type="text" value="192.168.144.25" />
+            <button id="apply-ip" class="ghost-btn">Apply</button>
+          </div>
+          <p id="connection-text" class="muted">接続状態を確認中...</p>
+        </section>
 
-      <section class="zoom-section" id="zoom-section">
-        <div class="zoom-head">
-          <span>Zoom</span>
-          <span id="zoom-value">1.0x</span>
-        </div>
-        <p class="zoom-max">Max: <span id="zoom-max-value">-</span></p>
-        <div class="zoom-row">
-          <button id="zoom-dec-btn" class="zoom-btn" aria-label="zoom out">−</button>
-          <input id="zoom-bar" type="range" min="1" max="165" step="1" value="1" />
-          <button id="zoom-inc-btn" class="zoom-btn" aria-label="zoom in">＋</button>
-        </div>
-      </section>
+        <section class="controls">
+          <button id="record-btn" class="record-btn" aria-label="record toggle">
+            <span class="record-dot"></span>
+            <span id="record-label">Start Rec</span>
+          </button>
+          <button id="shutter-btn" class="shutter-btn" aria-label="trigger photo">
+            <span>Shutter</span>
+          </button>
+        </section>
 
-      <section class="mode-section">
-        <div class="mode-head">
-          <span>映像タイプ</span>
-          <span id="video-mode-value">RGB</span>
-        </div>
-        <div class="mode-buttons">
-          <button class="mode-btn active" data-mode="rgb" id="mode-rgb-btn">RGB映像</button>
-          <button class="mode-btn" data-mode="thermal" id="mode-thermal-btn">サーマル映像</button>
-          <button class="mode-btn" data-mode="side_by_side" id="mode-sbs-btn">サイド・バイ・サイド</button>
-        </div>
-      </section>
+        <section class="zoom-section" id="zoom-section">
+          <div class="zoom-head">
+            <span>Zoom</span>
+            <span id="zoom-value">1.0x</span>
+          </div>
+          <p class="zoom-max">Max: <span id="zoom-max-value">-</span></p>
+          <div class="zoom-row">
+            <button id="zoom-dec-btn" class="zoom-btn" aria-label="zoom out">−</button>
+            <input id="zoom-bar" type="range" min="1" max="165" step="1" value="1" />
+            <button id="zoom-inc-btn" class="zoom-btn" aria-label="zoom in">＋</button>
+          </div>
+        </section>
+
+        <section class="mode-section">
+          <div class="mode-head">
+            <span>映像タイプ</span>
+            <span id="video-mode-value">RGB</span>
+          </div>
+          <div class="mode-buttons">
+            <button class="mode-btn active" data-mode="rgb" id="mode-rgb-btn">RGB映像</button>
+            <button class="mode-btn" data-mode="thermal" id="mode-thermal-btn">サーマル映像</button>
+            <button class="mode-btn" data-mode="side_by_side" id="mode-sbs-btn">サイド・バイ・サイド</button>
+          </div>
+        </section>
+      </div>
+
+      <div id="tab-joystick" class="hidden">
+        <section class="js-section">
+          <div class="js-section-head">JOYSTICK DEVICE</div>
+          <div class="js-device-row">
+            <select id="js-gamepad-select" class="js-select">
+              <option value="">-- Select gamepad --</option>
+            </select>
+            <button id="js-scan-btn" class="ghost-btn">Scan</button>
+            <label class="js-enable-label">
+              <input id="js-enable-chk" type="checkbox" />
+              Enable
+            </label>
+          </div>
+          <p class="muted js-status-text">
+            <span id="js-badge" class="js-badge not-found">NOT FOUND</span>
+            <span id="js-hint">ページ操作後にゲームパッドが検出されます</span>
+          </p>
+        </section>
+
+        <section class="js-section">
+          <div class="js-section-head">LIVE VALUES</div>
+          <div id="js-axes-container" class="js-axes-container"></div>
+          <div id="js-buttons-container" class="js-buttons-container"></div>
+        </section>
+
+        <section class="js-section">
+          <div class="js-section-head">AXIS MAPPING</div>
+          <table class="js-map-table">
+            <thead>
+              <tr><th>Axis</th><th>Function</th><th>DZ</th><th>Inv</th><th>Scale</th></tr>
+            </thead>
+            <tbody id="js-axis-tbody"></tbody>
+          </table>
+        </section>
+
+        <section class="js-section">
+          <div class="js-section-head">BUTTON MAPPING</div>
+          <table class="js-map-table">
+            <thead>
+              <tr><th>Button</th><th>Function</th></tr>
+            </thead>
+            <tbody id="js-btn-tbody"></tbody>
+          </table>
+        </section>
+
+        <section class="js-section js-settings-row">
+          <div class="js-setting-pair">
+            <label>Max Pan Speed</label>
+            <input id="js-max-pan" type="number" min="1" max="100" value="30" class="js-num-input" />
+          </div>
+          <div class="js-setting-pair">
+            <label>Max Tilt Speed</label>
+            <input id="js-max-tilt" type="number" min="1" max="100" value="20" class="js-num-input" />
+          </div>
+        </section>
+
+        <button id="js-save-btn" class="js-save-btn">Save Config</button>
+        <button id="js-center-btn" class="ghost-btn js-center-btn">Center Gimbal</button>
+      </div>
     </main>
 
     <script src="/static/app.js"></script>

@@ -326,3 +326,271 @@ input:focus {
     justify-content: center;
   }
 }
+
+/* ─── Tabs ──────────────────────────────────────────────────────── */
+.tab-bar {
+  display: flex;
+  gap: 2px;
+  margin: 16px 0 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.tab-btn {
+  padding: 8px 20px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+
+.tab-btn.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.tab-btn:hover:not(.active) {
+  color: var(--text);
+}
+
+/* ─── Joystick Sections ─────────────────────────────────────────── */
+.js-section {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(9, 11, 16, 0.36);
+}
+
+.js-section-head {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  margin-bottom: 10px;
+}
+
+.js-device-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.js-select {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(9, 11, 16, 0.7);
+  color: var(--text);
+  outline: none;
+}
+
+.js-select:focus {
+  border-color: #4b617f;
+}
+
+.js-enable-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.js-status-text {
+  margin-top: 8px;
+}
+
+.js-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  margin-right: 6px;
+}
+
+.js-badge.connected {
+  background: rgba(67, 211, 158, 0.13);
+  border: 1px solid #20483a;
+  color: #9ee7cb;
+}
+
+.js-badge.not-found {
+  background: rgba(255, 180, 0, 0.14);
+  border: 1px solid #5c4d22;
+  color: #ffdc81;
+}
+
+/* ─── Live Values ───────────────────────────────────────────────── */
+.js-axes-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.js-axis-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.js-axis-label {
+  width: 48px;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.js-axis-val {
+  width: 44px;
+  flex-shrink: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.js-axis-bar-track {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.js-axis-bar-track::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: var(--line);
+  transform: translateX(-50%);
+}
+
+.js-axis-bar {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: var(--ok);
+  transition: left 30ms, width 30ms;
+}
+
+.js-buttons-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.js-btn-cell {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-2);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.js-btn-cell.active {
+  background: rgba(255, 77, 92, 0.3);
+  border-color: #5d2430;
+  color: #ff4d5c;
+}
+
+/* ─── Mapping Tables ────────────────────────────────────────────── */
+.js-map-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.js-map-table th,
+.js-map-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.js-map-table th {
+  color: var(--muted);
+  font-weight: normal;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.js-map-table select {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 3px 6px;
+  font-size: 12px;
+  outline: none;
+}
+
+/* ─── Numeric Inputs ────────────────────────────────────────────── */
+.js-num-input {
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(9, 11, 16, 0.7);
+  color: var(--text);
+  font-size: 12px;
+  width: 60px;
+  outline: none;
+}
+
+.js-settings-row .js-num-input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+
+/* ─── Settings Row ──────────────────────────────────────────────── */
+.js-settings-row {
+  display: flex;
+  gap: 14px;
+}
+
+.js-setting-pair {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ─── Save / Center Buttons ─────────────────────────────────────── */
+.js-save-btn {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 14px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #3a5a8f, #28406a);
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 180ms ease;
+}
+
+.js-save-btn:active {
+  transform: translateY(1px) scale(0.995);
+}
+
+.js-center-btn {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px;
+  text-align: center;
+}

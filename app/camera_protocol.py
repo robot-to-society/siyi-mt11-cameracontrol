@@ -184,6 +184,43 @@ class CameraClient:
         if self.state.record_sta == 1:
             self.toggle_record()
 
+    def _ensure_udp_socket(self) -> None:
+        """UDP ソケットを遅延初期化 (ジンバル速度コマンド用)"""
+        if not hasattr(self, "_udp_sock") or self._udp_sock is None:
+            self._udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    def send_udp_cmd(self, cmd_id: int, data: bytes = b"", ctrl: int = 0x01) -> None:
+        """UDP経由でコマンドを送信 (ジンバル速度制御など)"""
+        self._ensure_udp_socket()
+        seq = self._next_seq()
+        packet = make_packet(cmd_id=cmd_id, data=data, ctrl=ctrl, seq=seq)
+        self._udp_sock.sendto(packet, (self.host, self.port))
+
+    def set_gimbal_speed(self, yaw: float, pitch: float) -> None:
+        """CMD 0x07: ジンバル速度コマンド (UDP)
+        yaw, pitch: -100.0〜+100.0 (int8に変換)
+        yaw>0=右, pitch>0=上
+        """
+        yaw_i = int(max(-100, min(100, round(yaw))))
+        pitch_i = int(max(-100, min(100, round(pitch))))
+        payload = struct.pack("<bb", yaw_i, pitch_i)
+        self.send_udp_cmd(cmd_id=0x07, data=payload)
+
+    def center_gimbal(self, mode: int = 1) -> None:
+        """CMD 0x08: センターコマンド (UDP)
+        mode: 1=One-Key Reset, 2=Center+face down, 3=Center, 4=Face downward
+        """
+        payload = struct.pack("<B", mode)
+        self.send_udp_cmd(cmd_id=0x08, data=payload)
+
+    def zoom_speed(self, direction: int) -> None:
+        """CMD 0x05: Manual Zoom (TCP)
+        direction: 1=ズームイン, 0=停止, -1=ズームアウト
+        """
+        val = max(-1, min(1, direction))
+        payload = struct.pack("<b", val)
+        self.send_cmd(cmd_id=0x05, data=payload, ctrl=0x01)
+
     def _heartbeat_loop(self) -> None:
         while not self._stop_event.is_set():
             try:

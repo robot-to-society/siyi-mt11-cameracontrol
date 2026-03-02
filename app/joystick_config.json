@@ -1,0 +1,16 @@
+{
+  "enabled": false,
+  "max_pan_speed": 30.0,
+  "max_tilt_speed": 20.0,
+  "zoom_step_hz": 2.0,
+  "axis_mappings": [
+    {"axis_id": 0, "function": "pan",      "deadzone": 0.08, "invert": false, "scale": 1.0},
+    {"axis_id": 1, "function": "tilt",     "deadzone": 0.08, "invert": true,  "scale": 1.0},
+    {"axis_id": 3, "function": "zoom_abs", "deadzone": 0.02, "invert": false, "scale": 1.0}
+  ],
+  "button_mappings": [
+    {"button_id": 0, "function": "shutter"},
+    {"button_id": 1, "function": "thermal_toggle"},
+    {"button_id": 3, "function": "center_gimbal"}
+  ]
+}

@@ -1,8 +1,10 @@
+import json
+import os
 import threading
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -12,6 +14,24 @@ from app.camera_protocol import CameraClient
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+CONFIG_PATH = BASE_DIR / "joystick_config.json"
+
+DEFAULT_CONFIG: dict = {
+    "enabled": False,
+    "max_pan_speed": 30.0,
+    "max_tilt_speed": 20.0,
+    "zoom_step_hz": 2.0,
+    "axis_mappings": [
+        {"axis_id": 0, "function": "pan",      "deadzone": 0.08, "invert": False, "scale": 1.0},
+        {"axis_id": 1, "function": "tilt",     "deadzone": 0.08, "invert": True,  "scale": 1.0},
+        {"axis_id": 3, "function": "zoom_abs", "deadzone": 0.02, "invert": False, "scale": 1.0},
+    ],
+    "button_mappings": [
+        {"button_id": 0, "function": "shutter"},
+        {"button_id": 1, "function": "thermal_toggle"},
+        {"button_id": 3, "function": "center_gimbal"},
+    ],
+}
 
 app = FastAPI(title="MT11 Camera Control UI")
 camera = CameraClient(host="192.168.144.25", port=37260)
@@ -27,6 +47,15 @@ class VideoModePayload(BaseModel):
 
 class ZoomSetPayload(BaseModel):
     zoom: float
+
+
+class GimbalSpeedPayload(BaseModel):
+    yaw: float = 0.0
+    pitch: float = 0.0
+
+
+class ZoomSpeedPayload(BaseModel):
+    direction: int = 0
 
 
 def background_status_loop() -> None:
@@ -177,6 +206,48 @@ def set_video_mode(payload: VideoModePayload) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/gimbal/speed")
+def api_gimbal_speed(payload: GimbalSpeedPayload) -> dict:
+    try:
+        camera.set_gimbal_speed(payload.yaw, payload.pitch)
+        return {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/gimbal/center")
+def api_gimbal_center() -> dict:
+    try:
+        camera.center_gimbal()
+        return {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/zoom/speed")
+def api_zoom_speed(payload: ZoomSpeedPayload) -> dict:
+    try:
+        camera.zoom_speed(payload.direction)
+        return {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/joystick/config")
+def api_get_joystick_config() -> dict:
+    if CONFIG_PATH.exists():
+        return json.loads(CONFIG_PATH.read_text())
+    return DEFAULT_CONFIG
+
+
+@app.post("/api/joystick/config")
+def api_set_joystick_config(payload: dict = Body(...)) -> dict:
+    tmp = CONFIG_PATH.with_name(CONFIG_PATH.name + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+    os.replace(tmp, CONFIG_PATH)
+    return {"ok": True}
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
