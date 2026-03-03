@@ -1,5 +1,4 @@
 import json
-import math
 import os
 import threading
 import time
@@ -9,9 +8,6 @@ from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import socket as _socket
-
-from pymavlink.dialects.v20 import ardupilotmega as _ap_mavlink
 
 from app.camera_protocol import CameraClient
 
@@ -40,11 +36,6 @@ DEFAULT_CONFIG: dict = {
 app = FastAPI(title="MT11 Camera Control UI")
 camera = CameraClient(host="192.168.144.25", port=37260)
 
-MAV_HOST = "127.0.0.1"
-MAV_PORT = 14555
-_mav_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
-mav_conn = _ap_mavlink.MAVLink(_mav_sock, srcSystem=255, srcComponent=0, use_native=False)
-
 
 class CameraIpPayload(BaseModel):
     ip: str
@@ -65,11 +56,6 @@ class GimbalSpeedPayload(BaseModel):
 
 class ZoomSpeedPayload(BaseModel):
     direction: int = 0
-
-
-class GimbalRatePayload(BaseModel):
-    pitch_rate: float   # deg/s, 正 = 上向き
-    yaw_rate: float     # deg/s, 正 = 右向き
 
 
 def background_status_loop() -> None:
@@ -239,28 +225,6 @@ def api_gimbal_center() -> dict:
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-
-@app.post("/api/gimbal/rate")
-def set_gimbal_rate(payload: GimbalRatePayload) -> dict:
-    try:
-        pitch_rad = math.radians(payload.pitch_rate)
-        yaw_rad   = math.radians(payload.yaw_rate)
-        msg = mav_conn.gimbal_manager_set_pitchyaw_encode(
-            target_system=1,
-            target_component=1,
-            flags=0,
-            gimbal_device_id=0,
-            pitch=float("nan"),
-            yaw=float("nan"),
-            pitch_rate=pitch_rad,
-            yaw_rate=yaw_rad,
-        )
-        _mav_sock.sendto(msg.pack(mav_conn), (MAV_HOST, MAV_PORT))
-        return {"ok": True}
-    except Exception as exc:  # noqa: BLE001
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/api/zoom/speed")
