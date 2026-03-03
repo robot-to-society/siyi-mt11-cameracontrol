@@ -285,8 +285,8 @@ def api_ai_tracking(payload: AiTrackingPayload) -> dict:
         if payload.enable:
             camera.set_ai_mode(True)
             time.sleep(0.1)
-            # Center 200x200 box in 1280x720 stream
-            camera.ai_select_tracking(1, lx=540, ly=260, rx=740, ry=460)
+            # Center 200x200 box in 3840x2160 (4K) stream
+            camera.ai_select_tracking(1, lx=1820, ly=980, rx=2020, ry=1180)
         else:
             camera.ai_select_tracking(0)
         return {"ok": True}
