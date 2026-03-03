@@ -206,10 +206,10 @@ tabBtns.forEach((btn) => {
 });
 
 // ─── Joystick Config ─────────────────────────────────────────────
-const AXIS_FUNCTIONS = ["none", "pan", "tilt", "zoom_abs", "zoom_speed"];
+const AXIS_FUNCTIONS = ["none", "pan", "tilt", "zoom_abs", "zoom_speed", "zoom_step"];
 const BTN_FUNCTIONS = ["none", "shutter", "thermal_toggle", "center_gimbal", "record_toggle",
                        "focus_far", "focus_near", "thermal_gain_toggle", "ai_tracking_toggle",
-                       "gimbal_stop"];
+                       "gimbal_stop", "zoom_in_step", "zoom_out_step"];
 
 let jsConfig = {
   enabled: false,
@@ -430,6 +430,7 @@ let lastGimbalSend = 0;
 let lastZoomAbsSend = 0;
 let lastZoomSpeedSend = 0;
 let prevZoomAbsTarget = null;
+const zoomStepPrevZone = {};  // axis_id -> 'pos' | 'neg' | 'none'
 
 function applyDeadzone(val, dz) {
   if (Math.abs(val) < dz) return 0;
@@ -463,6 +464,17 @@ function processAxes(axes, now) {
       case "tilt":       tiltVal = val; break;
       case "zoom_abs":   zoomAbsRaw = axes[i]; zoomAbsMapping = m; break;
       case "zoom_speed": zoomSpeedVal = val; break;
+      case "zoom_step": {
+        // raw axis value (after invert): >=+0.2 → zoom+1, <=-0.2 → zoom-1, once per zone entry
+        const zone = raw >= 0.2 ? "pos" : raw <= -0.2 ? "neg" : "none";
+        const prev = zoomStepPrevZone[i] ?? "none";
+        if (zone !== prev) {
+          if (zone === "pos") postJSON("/api/zoom/inc").catch(() => {});
+          else if (zone === "neg") postJSON("/api/zoom/dec").catch(() => {});
+          zoomStepPrevZone[i] = zone;
+        }
+        break;
+      }
     }
   }
 
@@ -554,6 +566,12 @@ function handleButtonPress(fn) {
       break;
     case "gimbal_stop":
       postJSON("/api/gimbal/speed", { yaw: 0, pitch: 0 }).catch(() => {});
+      break;
+    case "zoom_in_step":
+      postJSON("/api/zoom/inc").catch(() => {});
+      break;
+    case "zoom_out_step":
+      postJSON("/api/zoom/dec").catch(() => {});
       break;
   }
 }
