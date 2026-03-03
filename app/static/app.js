@@ -58,6 +58,7 @@ function setStatusUI(data) {
   const currentZoom = Number(data.zoom_current ?? 1);
   const maxZoom = Math.max(1, Math.floor(Number(data.zoom_max ?? 1)));
   zoomBar.max = String(maxZoom);
+  zoomBar.value = String(currentZoom);
   zoomValue.textContent = `${currentZoom.toFixed(1)}x`;
   zoomMaxValue.textContent = `${Number(data.zoom_max).toFixed(1)}x`;
   zoomBar.disabled = false;
