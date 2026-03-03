@@ -9,7 +9,9 @@ from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from pymavlink import mavutil
+import socket as _socket
+
+from pymavlink.dialects.v20 import ardupilotmega as _ap_mavlink
 
 from app.camera_protocol import CameraClient
 
@@ -40,11 +42,8 @@ camera = CameraClient(host="192.168.144.25", port=37260)
 
 MAV_HOST = "127.0.0.1"
 MAV_PORT = 14555
-mav_conn = mavutil.mavlink_connection(
-    f"udp:{MAV_HOST}:{MAV_PORT}",
-    source_system=255,   # GCS system ID
-    source_component=0,
-)
+_mav_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+mav_conn = _ap_mavlink.MAVLink(_mav_sock, srcSystem=255, srcComponent=0, use_native=False)
 
 
 class CameraIpPayload(BaseModel):
@@ -246,7 +245,7 @@ def set_gimbal_rate(payload: GimbalRatePayload) -> dict:
     try:
         pitch_rad = math.radians(payload.pitch_rate)
         yaw_rad   = math.radians(payload.yaw_rate)
-        mav_conn.mav.gimbal_manager_set_pitchyaw_send(
+        msg = mav_conn.gimbal_manager_set_pitchyaw_encode(
             target_system=1,
             target_component=1,
             flags=0,
@@ -256,6 +255,7 @@ def set_gimbal_rate(payload: GimbalRatePayload) -> dict:
             pitch_rate=pitch_rad,
             yaw_rate=yaw_rad,
         )
+        _mav_sock.sendto(msg.pack(mav_conn), (MAV_HOST, MAV_PORT))
         return {"ok": True}
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
