@@ -208,7 +208,8 @@ tabBtns.forEach((btn) => {
 // ─── Joystick Config ─────────────────────────────────────────────
 const AXIS_FUNCTIONS = ["none", "pan", "tilt", "zoom_abs", "zoom_speed"];
 const BTN_FUNCTIONS = ["none", "shutter", "thermal_toggle", "center_gimbal", "record_toggle",
-                       "focus_far", "focus_near", "thermal_gain_toggle", "ai_tracking_toggle"];
+                       "focus_far", "focus_near", "thermal_gain_toggle", "ai_tracking_toggle",
+                       "gimbal_stop"];
 
 let jsConfig = {
   enabled: false,
@@ -550,6 +551,9 @@ function handleButtonPress(fn) {
     }
     case "ai_tracking_toggle":
       toggleAiTracking();
+      break;
+    case "gimbal_stop":
+      postJSON("/api/gimbal/speed", { yaw: 0, pitch: 0 }).catch(() => {});
       break;
   }
 }
