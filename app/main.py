@@ -258,6 +258,8 @@ def set_gimbal_rate(payload: GimbalRatePayload) -> dict:
         _mav_sock.sendto(msg.pack(mav_conn), (MAV_HOST, MAV_PORT))
         return {"ok": True}
     except Exception as exc:  # noqa: BLE001
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
