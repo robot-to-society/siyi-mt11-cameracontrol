@@ -257,9 +257,6 @@ window.addEventListener("gamepaddisconnected", (e) => {
   }
   updateGamepadSelect();
   updateJsBadge();
-  if (activeGamepadIndex < 0) {
-    postJSON("/api/gimbal/speed", { yaw: 0, pitch: 0 }).catch(() => {});
-  }
 });
 
 function updateGamepadSelect() {
@@ -311,9 +308,6 @@ document.getElementById("js-gamepad-select")?.addEventListener("change", (e) => 
 
 document.getElementById("js-enable-chk")?.addEventListener("change", (e) => {
   jsConfig.enabled = e.target.checked;
-  if (!jsConfig.enabled) {
-    postJSON("/api/gimbal/speed", { yaw: 0, pitch: 0 }).catch(() => {});
-  }
 });
 
 // ─── Config UI Render ────────────────────────────────────────────
@@ -434,7 +428,6 @@ let prevBtns = [];
 let lastGimbalSend = 0;
 let lastZoomAbsSend = 0;
 let lastZoomSpeedSend = 0;
-let gimbalStopped = true;
 let prevZoomAbsTarget = null;
 
 function applyDeadzone(val, dz) {
@@ -472,17 +465,12 @@ function processAxes(axes, now) {
     }
   }
 
-  // Gimbal speed (20 Hz max)
+  // Gimbal speed (20 Hz max) — send only when non-zero input
   if (now - lastGimbalSend >= 50) {
     const yaw = Math.round(panVal * jsConfig.max_pan_speed);
     const pitch = Math.round(tiltVal * jsConfig.max_tilt_speed);
     if (yaw !== 0 || pitch !== 0) {
       postJSON("/api/gimbal/speed", { yaw, pitch }).catch(() => {});
-      gimbalStopped = false;
-      lastGimbalSend = now;
-    } else if (!gimbalStopped) {
-      postJSON("/api/gimbal/speed", { yaw: 0, pitch: 0 }).catch(() => {});
-      gimbalStopped = true;
       lastGimbalSend = now;
     }
   }
