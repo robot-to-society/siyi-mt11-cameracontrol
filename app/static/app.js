@@ -13,6 +13,7 @@ const zoomIncBtn = document.getElementById("zoom-inc-btn");
 const zoomDecBtn = document.getElementById("zoom-dec-btn");
 const videoModeValue = document.getElementById("video-mode-value");
 const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
+const aiStreamRes = document.getElementById("ai-stream-res");
 
 let recordState = "idle";
 
@@ -64,6 +65,10 @@ function setStatusUI(data) {
   zoomBar.disabled = false;
   zoomDecBtn.disabled = currentZoom <= 1.0;
   zoomIncBtn.disabled = currentZoom >= maxZoom;
+
+  if (data.stream_width && data.stream_height) {
+    aiStreamRes.textContent = `${data.stream_width}×${data.stream_height}`;
+  }
 
   const currentMode = data.video_mode || "custom";
   const modeLabelMap = {

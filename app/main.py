@@ -82,6 +82,8 @@ def background_status_loop() -> None:
             camera.request_zoom_level()
             if tick % 10 == 0:
                 camera.request_video_mode()
+            if tick % 30 == 0:
+                camera.request_encoding_params()
             tick += 1
         except Exception:  # noqa: BLE001
             try:
@@ -124,6 +126,8 @@ def get_status() -> dict:
         "video_mode": camera.state.video_mode_name,
         "video_mode_main": camera.state.video_mode_main,
         "video_mode_sub": camera.state.video_mode_sub,
+        "stream_width": camera.state.stream_width,
+        "stream_height": camera.state.stream_height,
         "last_feedback": camera.state.last_feedback,
         "last_error": camera.state.last_error,
         "updated_at": camera.state.updated_at,
@@ -285,8 +289,11 @@ def api_ai_tracking(payload: AiTrackingPayload) -> dict:
         if payload.enable:
             camera.set_ai_mode(True)
             time.sleep(0.1)
-            # Center 200x200 box in 3840x2160 (4K) stream
-            camera.ai_select_tracking(1, lx=1820, ly=980, rx=2020, ry=1180)
+            # Use actual stream resolution; fall back to 1920x1080 if not yet queried
+            w = camera.state.stream_width or 1920
+            h = camera.state.stream_height or 1080
+            cx, cy = w // 2, h // 2
+            camera.ai_select_tracking(1, lx=cx - 100, ly=cy - 100, rx=cx + 100, ry=cy + 100)
         else:
             camera.ai_select_tracking(0)
         return {"ok": True}

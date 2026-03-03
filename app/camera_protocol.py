@@ -39,6 +39,8 @@ class CameraState:
     video_mode_main: int = 0
     video_mode_sub: int = 2
     video_mode_name: str = "rgb"
+    stream_width: int = 0   # 0 = unknown (not yet queried)
+    stream_height: int = 0
     last_feedback: Optional[int] = None
     last_error: Optional[str] = None
     connected: bool = False
@@ -136,6 +138,10 @@ class CameraClient:
 
     def request_video_mode(self) -> None:
         self.send_cmd(cmd_id=0x10, data=b"", ctrl=0x01)
+
+    def request_encoding_params(self) -> None:
+        """CMD 0x20: Request Camera Encoding Parameters (main stream)"""
+        self.send_cmd(cmd_id=0x20, data=b"\x01", ctrl=0x01)
 
     def set_absolute_zoom(self, zoom: float) -> None:
         clamped = max(1.0, min(zoom, self.state.zoom_max))
@@ -320,7 +326,15 @@ class CameraClient:
             self._handle_frame(cmd_id, payload)
 
     def _handle_frame(self, cmd_id: int, payload: bytes) -> None:
-        if cmd_id == 0x0A and len(payload) >= 4:
+        if cmd_id == 0x20 and len(payload) >= 6:
+            # Camera encoding parameters: [stream, codec, width_lo, width_hi, height_lo, height_hi, ...]
+            width = struct.unpack("<H", payload[2:4])[0]
+            height = struct.unpack("<H", payload[4:6])[0]
+            if width > 0 and height > 0:
+                self.state.stream_width = width
+                self.state.stream_height = height
+                self._notify_state_change()
+        elif cmd_id == 0x0A and len(payload) >= 4:
             self.state.record_sta = payload[3]
             self._notify_state_change()
         elif cmd_id == 0x0B and len(payload) >= 1:
