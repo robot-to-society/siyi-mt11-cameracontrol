@@ -215,8 +215,8 @@ let jsConfig = {
   max_tilt_speed: 100.0,
   zoom_step_hz: 2.0,
   axis_mappings: [
-    { axis_id: 0, function: "pan",      deadzone: 0.08, invert: false, scale: 1.0 },
-    { axis_id: 1, function: "tilt",     deadzone: 0.08, invert: true,  scale: 1.0 },
+    { axis_id: 0, function: "pan",      deadzone: 0.01, invert: false, scale: 1.0 },
+    { axis_id: 1, function: "tilt",     deadzone: 0.01, invert: true,  scale: 1.0 },
     { axis_id: 3, function: "zoom_abs", deadzone: 0.02, invert: false, scale: 1.0 },
   ],
   button_mappings: [
@@ -257,7 +257,7 @@ window.addEventListener("gamepaddisconnected", (e) => {
   updateGamepadSelect();
   updateJsBadge();
   if (activeGamepadIndex < 0) {
-    postJSON("/api/gimbal/rate", { pitch_rate: 0, yaw_rate: 0 }).catch(() => {});
+    postJSON("/api/gimbal/speed", { yaw: 0, pitch: 0 }).catch(() => {});
   }
 });
 
@@ -311,7 +311,7 @@ document.getElementById("js-gamepad-select")?.addEventListener("change", (e) => 
 document.getElementById("js-enable-chk")?.addEventListener("change", (e) => {
   jsConfig.enabled = e.target.checked;
   if (!jsConfig.enabled) {
-    postJSON("/api/gimbal/rate", { pitch_rate: 0, yaw_rate: 0 }).catch(() => {});
+    postJSON("/api/gimbal/speed", { yaw: 0, pitch: 0 }).catch(() => {});
   }
 });
 
@@ -335,7 +335,7 @@ function renderAxisTable() {
   const numAxes = gp ? gp.axes.length : 4;
   for (let axisId = 0; axisId < numAxes; axisId++) {
     const mapping = jsConfig.axis_mappings.find((m) => m.axis_id === axisId) || {
-      axis_id: axisId, function: "none", deadzone: 0.08, invert: false, scale: 1.0,
+      axis_id: axisId, function: "none", deadzone: 0.01, invert: false, scale: 1.0,
     };
     const tr = document.createElement("tr");
     tr.innerHTML =
@@ -476,11 +476,11 @@ function processAxes(axes, now) {
     const yaw = Math.round(panVal * jsConfig.max_pan_speed);
     const pitch = Math.round(tiltVal * jsConfig.max_tilt_speed);
     if (yaw !== 0 || pitch !== 0) {
-      postJSON("/api/gimbal/rate", { pitch_rate: pitch, yaw_rate: yaw }).catch(() => {});
+      postJSON("/api/gimbal/speed", { yaw, pitch }).catch(() => {});
       gimbalStopped = false;
       lastGimbalSend = now;
     } else if (!gimbalStopped) {
-      postJSON("/api/gimbal/rate", { pitch_rate: 0, yaw_rate: 0 }).catch(() => {});
+      postJSON("/api/gimbal/speed", { yaw: 0, pitch: 0 }).catch(() => {});
       gimbalStopped = true;
       lastGimbalSend = now;
     }

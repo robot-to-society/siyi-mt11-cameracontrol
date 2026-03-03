@@ -26,8 +26,8 @@ DEFAULT_CONFIG: dict = {
     "max_tilt_speed": 100.0,
     "zoom_step_hz": 2.0,
     "axis_mappings": [
-        {"axis_id": 0, "function": "pan",      "deadzone": 0.08, "invert": False, "scale": 1.0},
-        {"axis_id": 1, "function": "tilt",     "deadzone": 0.08, "invert": True,  "scale": 1.0},
+        {"axis_id": 0, "function": "pan",      "deadzone": 0.01, "invert": False, "scale": 1.0},
+        {"axis_id": 1, "function": "tilt",     "deadzone": 0.01, "invert": True,  "scale": 1.0},
         {"axis_id": 3, "function": "zoom_abs", "deadzone": 0.02, "invert": False, "scale": 1.0},
     ],
     "button_mappings": [
