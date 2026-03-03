@@ -221,6 +221,38 @@ class CameraClient:
         payload = struct.pack("<b", val)
         self.send_cmd(cmd_id=0x05, data=payload, ctrl=0x01)
 
+    def manual_focus(self, direction: int) -> None:
+        """CMD 0x06: Manual Focus (TCP)
+        direction: 1=far, 0=stop, -1=near
+        """
+        val = max(-1, min(1, direction))
+        self.send_cmd(cmd_id=0x06, data=struct.pack("<b", val), ctrl=0x01)
+
+    def set_thermal_gain(self, gain: int) -> None:
+        """CMD 0x38: Set Thermal Imaging Gain Mode (TCP)
+        gain: 0=Low Gain, 1=High Gain
+        """
+        self.send_cmd(cmd_id=0x38, data=struct.pack("<B", gain & 0x01), ctrl=0x01)
+
+    def set_thermal_palette(self, palette: int) -> None:
+        """CMD 0x1B: Set Thermal Palette (TCP)
+        palette: 0=White_Hot, 2=Sepia, 3=Ironbow, 4=Rainbow, 5=Night,
+                 6=Aurora, 7=Red_Hot, 8=Jungle, 9=Medical, 10=Black_Hot, 11=Glory_Hot
+        """
+        self.send_cmd(cmd_id=0x1B, data=struct.pack("<B", palette & 0xFF), ctrl=0x01)
+
+    def set_ai_mode(self, enable: bool) -> None:
+        """CMD 0x55: Enable/Disable AI Tracking Mode (TCP)"""
+        self.send_cmd(cmd_id=0x55, data=struct.pack("<B", 1 if enable else 0), ctrl=0x01)
+
+    def ai_select_tracking(self, action: int, lx: int = 0, ly: int = 0, rx: int = 0, ry: int = 0) -> None:
+        """CMD 0x56: AI Select Tracking Target (TCP)
+        action: 1=Track, 0=Cancel
+        lx,ly: top-left coord; rx,ry: bottom-right coord (1280x720 stream)
+        """
+        payload = struct.pack("<BHHHH", action, lx, ly, rx, ry)
+        self.send_cmd(cmd_id=0x56, data=payload, ctrl=0x01)
+
     def _heartbeat_loop(self) -> None:
         while not self._stop_event.is_set():
             try:

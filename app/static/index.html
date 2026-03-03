@@ -66,6 +66,51 @@
             <button class="mode-btn" data-mode="side_by_side" id="mode-sbs-btn">サイド・バイ・サイド</button>
           </div>
         </section>
+
+        <section class="mode-section">
+          <div class="zoom-head"><span>FOCUS</span></div>
+          <div class="btn-row">
+            <button id="focus-near-btn" class="mode-btn">◀ Near</button>
+            <button id="focus-stop-btn" class="mode-btn">■ Stop</button>
+            <button id="focus-far-btn" class="mode-btn">Far ▶</button>
+          </div>
+        </section>
+
+        <section class="mode-section">
+          <div class="zoom-head"><span>THERMAL</span></div>
+          <div class="btn-row">
+            <button class="mode-btn" id="gain-low-btn" data-gain="0">Low Gain</button>
+            <button class="mode-btn" id="gain-high-btn" data-gain="1">High Gain</button>
+          </div>
+          <div class="palette-row">
+            <span class="palette-label">Palette</span>
+            <select id="palette-select" class="palette-select">
+              <option value="0">White Hot</option>
+              <option value="2">Sepia</option>
+              <option value="3">Ironbow</option>
+              <option value="4">Rainbow</option>
+              <option value="5">Night</option>
+              <option value="6">Aurora</option>
+              <option value="7">Red Hot</option>
+              <option value="8">Jungle</option>
+              <option value="9">Medical</option>
+              <option value="10">Black Hot</option>
+              <option value="11">Glory Hot</option>
+            </select>
+            <button id="palette-apply-btn" class="ghost-btn">Apply</button>
+          </div>
+        </section>
+
+        <section class="mode-section">
+          <div class="zoom-head">
+            <span>AI TRACKING</span>
+            <span id="ai-tracking-badge" class="muted">OFF</span>
+          </div>
+          <div class="btn-row">
+            <button id="ai-tracking-btn" class="mode-btn">Start Tracking</button>
+          </div>
+          <p class="muted">Center 200×200 px (1280×720)</p>
+        </section>
       </div>
 
       <div id="tab-joystick" class="hidden">

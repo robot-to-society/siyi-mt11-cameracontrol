@@ -207,7 +207,8 @@ tabBtns.forEach((btn) => {
 
 // ─── Joystick Config ─────────────────────────────────────────────
 const AXIS_FUNCTIONS = ["none", "pan", "tilt", "zoom_abs", "zoom_speed"];
-const BTN_FUNCTIONS = ["none", "shutter", "thermal_toggle", "center_gimbal", "record_toggle"];
+const BTN_FUNCTIONS = ["none", "shutter", "thermal_toggle", "center_gimbal", "record_toggle",
+                       "focus_far", "focus_near", "thermal_gain_toggle", "ai_tracking_toggle"];
 
 let jsConfig = {
   enabled: false,
@@ -471,8 +472,8 @@ function processAxes(axes, now) {
     }
   }
 
-  // Gimbal speed (10 Hz max)
-  if (now - lastGimbalSend >= 100) {
+  // Gimbal speed (20 Hz max)
+  if (now - lastGimbalSend >= 50) {
     const yaw = Math.round(panVal * jsConfig.max_pan_speed);
     const pitch = Math.round(tiltVal * jsConfig.max_tilt_speed);
     if (yaw !== 0 || pitch !== 0) {
@@ -516,15 +517,14 @@ function processButtons(buttons) {
   for (let i = 0; i < buttons.length; i++) {
     const pressed = buttons[i].pressed;
     const wasPressed = prevBtns[i] ?? false;
-    if (pressed && !wasPressed) {
-      const m = getBtnMapping(i);
-      if (m) handleButtonAction(m.function);
-    }
+    const m = getBtnMapping(i);
+    if (pressed && !wasPressed && m) handleButtonPress(m.function);
+    if (!pressed && wasPressed && m) handleButtonRelease(m.function);
     prevBtns[i] = pressed;
   }
 }
 
-function handleButtonAction(fn) {
+function handleButtonPress(fn) {
   switch (fn) {
     case "shutter":
       postJSON("/api/photo").catch(() => {});
@@ -548,6 +548,27 @@ function handleButtonAction(fn) {
         postJSON("/api/record/start").then(() => refreshStatus()).catch(() => {});
       }
       break;
+    case "focus_far":
+      postJSON("/api/focus", { direction: 1 }).catch(() => {});
+      break;
+    case "focus_near":
+      postJSON("/api/focus", { direction: -1 }).catch(() => {});
+      break;
+    case "thermal_gain_toggle": {
+      const highBtn = document.getElementById("gain-high-btn");
+      const isHigh = highBtn?.classList.contains("active");
+      setThermalGain(isHigh ? 0 : 1);
+      break;
+    }
+    case "ai_tracking_toggle":
+      toggleAiTracking();
+      break;
+  }
+}
+
+function handleButtonRelease(fn) {
+  if (fn === "focus_far" || fn === "focus_near") {
+    postJSON("/api/focus", { direction: 0 }).catch(() => {});
   }
 }
 
@@ -610,6 +631,73 @@ function gameLoop() {
     updateLiveDisplay(gp);
   }
 }
+
+// ─── Focus Buttons ────────────────────────────────────────────────
+function bindFocusBtn(btnId, direction) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  let active = false;
+  function start() {
+    if (active) return;
+    active = true;
+    postJSON("/api/focus", { direction }).catch(() => {});
+  }
+  function stop() {
+    if (!active) return;
+    active = false;
+    postJSON("/api/focus", { direction: 0 }).catch(() => {});
+  }
+  btn.addEventListener("mousedown", start);
+  btn.addEventListener("touchstart", (e) => { e.preventDefault(); start(); }, { passive: false });
+  btn.addEventListener("mouseup", stop);
+  btn.addEventListener("mouseleave", stop);
+  btn.addEventListener("touchend", stop);
+  btn.addEventListener("touchcancel", stop);
+}
+bindFocusBtn("focus-near-btn", -1);
+bindFocusBtn("focus-far-btn", 1);
+document.getElementById("focus-stop-btn")?.addEventListener("click", () => {
+  postJSON("/api/focus", { direction: 0 }).catch(() => {});
+});
+
+// ─── Thermal Gain ─────────────────────────────────────────────────
+function setThermalGain(gain) {
+  postJSON("/api/thermal/gain", { gain })
+    .then(() => {
+      document.getElementById("gain-low-btn")?.classList.toggle("active", gain === 0);
+      document.getElementById("gain-high-btn")?.classList.toggle("active", gain === 1);
+    })
+    .catch((e) => { connectionText.textContent = `Gain error: ${e}`; });
+}
+document.getElementById("gain-low-btn")?.addEventListener("click", () => setThermalGain(0));
+document.getElementById("gain-high-btn")?.addEventListener("click", () => setThermalGain(1));
+
+// ─── Thermal Palette ──────────────────────────────────────────────
+document.getElementById("palette-apply-btn")?.addEventListener("click", () => {
+  const palette = parseInt(document.getElementById("palette-select")?.value ?? "0");
+  postJSON("/api/thermal/palette", { palette }).catch((e) => {
+    connectionText.textContent = `Palette error: ${e}`;
+  });
+});
+
+// ─── AI Tracking ──────────────────────────────────────────────────
+let aiTrackingActive = false;
+function toggleAiTracking() {
+  const next = !aiTrackingActive;
+  postJSON("/api/ai/tracking", { enable: next })
+    .then(() => {
+      aiTrackingActive = next;
+      const btn = document.getElementById("ai-tracking-btn");
+      const badge = document.getElementById("ai-tracking-badge");
+      if (btn) {
+        btn.textContent = aiTrackingActive ? "Stop Tracking" : "Start Tracking";
+        btn.classList.toggle("active", aiTrackingActive);
+      }
+      if (badge) badge.textContent = aiTrackingActive ? "ON" : "OFF";
+    })
+    .catch((e) => { connectionText.textContent = `AI tracking error: ${e}`; });
+}
+document.getElementById("ai-tracking-btn")?.addEventListener("click", toggleAiTracking);
 
 // ─── Init ─────────────────────────────────────────────────────────
 loadJsConfig().then(() => gameLoop());

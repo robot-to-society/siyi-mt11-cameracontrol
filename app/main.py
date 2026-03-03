@@ -58,6 +58,22 @@ class ZoomSpeedPayload(BaseModel):
     direction: int = 0
 
 
+class FocusPayload(BaseModel):
+    direction: int = 0  # 1=far, 0=stop, -1=near
+
+
+class ThermalGainPayload(BaseModel):
+    gain: int  # 0=Low, 1=High
+
+
+class ThermalPalettePayload(BaseModel):
+    palette: int  # 0-11
+
+
+class AiTrackingPayload(BaseModel):
+    enable: bool
+
+
 def background_status_loop() -> None:
     tick = 0
     while True:
@@ -231,6 +247,48 @@ def api_gimbal_center() -> dict:
 def api_zoom_speed(payload: ZoomSpeedPayload) -> dict:
     try:
         camera.zoom_speed(payload.direction)
+        return {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/focus")
+def api_focus(payload: FocusPayload) -> dict:
+    try:
+        camera.manual_focus(payload.direction)
+        return {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/thermal/gain")
+def api_thermal_gain(payload: ThermalGainPayload) -> dict:
+    try:
+        camera.set_thermal_gain(payload.gain)
+        return {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/thermal/palette")
+def api_thermal_palette(payload: ThermalPalettePayload) -> dict:
+    try:
+        camera.set_thermal_palette(payload.palette)
+        return {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/ai/tracking")
+def api_ai_tracking(payload: AiTrackingPayload) -> dict:
+    try:
+        if payload.enable:
+            camera.set_ai_mode(True)
+            time.sleep(0.1)
+            # Center 200x200 box in 1280x720 stream
+            camera.ai_select_tracking(1, lx=540, ly=260, rx=740, ry=460)
+        else:
+            camera.ai_select_tracking(0)
         return {"ok": True}
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
