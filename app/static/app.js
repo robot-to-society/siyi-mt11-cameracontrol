@@ -257,7 +257,7 @@ window.addEventListener("gamepaddisconnected", (e) => {
   updateGamepadSelect();
   updateJsBadge();
   if (activeGamepadIndex < 0) {
-    postJSON("/api/gimbal/speed", { yaw: 0, pitch: 0 }).catch(() => {});
+    postJSON("/api/gimbal/rate", { pitch_rate: 0, yaw_rate: 0 }).catch(() => {});
   }
 });
 
@@ -311,7 +311,7 @@ document.getElementById("js-gamepad-select")?.addEventListener("change", (e) => 
 document.getElementById("js-enable-chk")?.addEventListener("change", (e) => {
   jsConfig.enabled = e.target.checked;
   if (!jsConfig.enabled) {
-    postJSON("/api/gimbal/speed", { yaw: 0, pitch: 0 }).catch(() => {});
+    postJSON("/api/gimbal/rate", { pitch_rate: 0, yaw_rate: 0 }).catch(() => {});
   }
 });
 
@@ -476,11 +476,11 @@ function processAxes(axes, now) {
     const yaw = Math.round(panVal * jsConfig.max_pan_speed);
     const pitch = Math.round(tiltVal * jsConfig.max_tilt_speed);
     if (yaw !== 0 || pitch !== 0) {
-      postJSON("/api/gimbal/speed", { yaw, pitch }).catch(() => {});
+      postJSON("/api/gimbal/rate", { pitch_rate: pitch, yaw_rate: yaw }).catch(() => {});
       gimbalStopped = false;
       lastGimbalSend = now;
     } else if (!gimbalStopped) {
-      postJSON("/api/gimbal/speed", { yaw: 0, pitch: 0 }).catch(() => {});
+      postJSON("/api/gimbal/rate", { pitch_rate: 0, yaw_rate: 0 }).catch(() => {});
       gimbalStopped = true;
       lastGimbalSend = now;
     }
