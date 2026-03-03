@@ -20,8 +20,8 @@ CONFIG_PATH = BASE_DIR / "joystick_config.json"
 
 DEFAULT_CONFIG: dict = {
     "enabled": False,
-    "max_pan_speed": 30.0,
-    "max_tilt_speed": 20.0,
+    "max_pan_speed": 100.0,
+    "max_tilt_speed": 100.0,
     "zoom_step_hz": 2.0,
     "axis_mappings": [
         {"axis_id": 0, "function": "pan",      "deadzone": 0.08, "invert": False, "scale": 1.0},
