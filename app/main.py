@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import threading
 import time
@@ -8,6 +9,7 @@ from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from pymavlink import mavutil
 
 from app.camera_protocol import CameraClient
 
@@ -36,6 +38,14 @@ DEFAULT_CONFIG: dict = {
 app = FastAPI(title="MT11 Camera Control UI")
 camera = CameraClient(host="192.168.144.25", port=37260)
 
+MAV_HOST = "127.0.0.1"
+MAV_PORT = 14550
+mav_conn = mavutil.mavlink_connection(
+    f"udpout:{MAV_HOST}:{MAV_PORT}",
+    source_system=255,   # GCS system ID
+    source_component=0,
+)
+
 
 class CameraIpPayload(BaseModel):
     ip: str
@@ -56,6 +66,11 @@ class GimbalSpeedPayload(BaseModel):
 
 class ZoomSpeedPayload(BaseModel):
     direction: int = 0
+
+
+class GimbalRatePayload(BaseModel):
+    pitch_rate: float   # deg/s, 正 = 上向き
+    yaw_rate: float     # deg/s, 正 = 右向き
 
 
 def background_status_loop() -> None:
@@ -221,6 +236,26 @@ def api_gimbal_speed(payload: GimbalSpeedPayload) -> dict:
 def api_gimbal_center() -> dict:
     try:
         camera.center_gimbal()
+        return {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/gimbal/rate")
+def set_gimbal_rate(payload: GimbalRatePayload) -> dict:
+    try:
+        pitch_rad = math.radians(payload.pitch_rate)
+        yaw_rad   = math.radians(payload.yaw_rate)
+        mav_conn.mav.gimbal_manager_set_pitchyaw_send(
+            target_system=1,
+            target_component=1,
+            flags=0,
+            gimbal_device_id=0,
+            pitch=float("nan"),
+            yaw=float("nan"),
+            pitch_rate=pitch_rad,
+            yaw_rate=yaw_rad,
+        )
         return {"ok": True}
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
