@@ -39,9 +39,9 @@ app = FastAPI(title="MT11 Camera Control UI")
 camera = CameraClient(host="192.168.144.25", port=37260)
 
 MAV_HOST = "127.0.0.1"
-MAV_PORT = 14550
+MAV_PORT = 14555
 mav_conn = mavutil.mavlink_connection(
-    f"udpout:{MAV_HOST}:{MAV_PORT}",
+    f"udp:{MAV_HOST}:{MAV_PORT}",
     source_system=255,   # GCS system ID
     source_component=0,
 )
