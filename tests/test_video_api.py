@@ -60,7 +60,7 @@ class TestTrackPoint:
 
     def test_default_box_px(self, client):
         res = client.post("/api/ai/track-point", json={"x": 0.5, "y": 0.5})
-        assert res.json()["box"]["rx"] - res.json()["box"]["lx"] == 150
+        assert res.json()["box"]["rx"] - res.json()["box"]["lx"] == 100
 
     @pytest.mark.parametrize(
         "body",

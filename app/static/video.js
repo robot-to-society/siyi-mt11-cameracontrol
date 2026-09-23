@@ -13,7 +13,7 @@ import { setupDisplayModes } from "./video_display.js";
 const WHEP_URL = "/api/video/whep"; // proxied to MediaMTX by the app
 const BOX_MIN = 32;
 const BOX_MAX = 600;
-const BOX_DEFAULT = 150;
+const BOX_DEFAULT = 100;
 const BOX_STORAGE_KEY = "mt11.trackBoxPx";
 const FLASH_MS = 400;
 const RESULT_SHOW_S = 5;

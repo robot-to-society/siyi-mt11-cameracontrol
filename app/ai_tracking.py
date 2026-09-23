@@ -9,7 +9,7 @@ from typing import Optional
 TRACK_BASE_W = 1280
 TRACK_BASE_H = 720
 
-BOX_PX_DEFAULT = 150
+BOX_PX_DEFAULT = 100
 BOX_PX_MIN = 32
 BOX_PX_MAX = 600
 
