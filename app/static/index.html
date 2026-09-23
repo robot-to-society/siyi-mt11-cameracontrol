@@ -43,6 +43,12 @@
             <span class="muted">px（カメラ映像の画素）</span>
             <button id="video-cancel-btn" class="ghost-btn">Cancel Tracking</button>
           </div>
+          <div class="video-roi-bar">
+            <span class="video-title">ROI</span>
+            <div id="video-roi-buttons" class="video-roi-buttons"></div>
+            <button id="video-roi-stop" class="ghost-btn">Stop ROI</button>
+            <span id="video-roi-status" class="muted video-roi-status">OFF</span>
+          </div>
           <p id="video-msg" class="muted video-msg">クリック：その位置を中心に四角で追跡 ／ Ctrl＋クリック：カメラが検出した人・車を選んで追跡</p>
         </section>
 
@@ -257,6 +263,7 @@
     </main>
 
     <script src="/static/app.js"></script>
+    <script src="/static/roi_quickbar.js"></script>
     <script type="module" src="/static/video.js"></script>
     <script type="module" src="/static/encoding.js"></script>
     <script type="module" src="/static/roi_import.js"></script>

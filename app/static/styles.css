@@ -824,3 +824,36 @@ body.pip-body {
   margin-top: 10px;
   font-size: 12px;
 }
+
+/* ─── ROI quick bar (under the live video) ─────────────────────── */
+.video-roi-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.video-roi-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.video-roi-btn {
+  padding: 6px 10px;
+  font-size: 12px;
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-roi-status {
+  margin-left: auto;
+}
+
+.video-roi-status.roi-error {
+  color: var(--accent);
+}

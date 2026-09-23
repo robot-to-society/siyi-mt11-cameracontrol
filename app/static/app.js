@@ -770,6 +770,7 @@ function updateRoiUI(roi, vehicle) {
   document.querySelectorAll(".roi-go-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.id === roiActiveId);
   });
+  if (typeof updateRoiQuickStatus === "function") updateRoiQuickStatus(roi, vehicle);
 }
 
 function startRoi(id) {
@@ -840,6 +841,7 @@ async function loadRoiConfig() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     roiConfig = await res.json();
     renderRoiTargets();
+    if (typeof renderRoiQuickBar === "function") renderRoiQuickBar(roiConfig.targets);
   } catch (e) {
     document.getElementById("roi-save-hint").textContent = `Load failed: ${e}`;
   }
@@ -882,6 +884,7 @@ document.getElementById("roi-save-btn")?.addEventListener("click", async () => {
   try {
     await postJSON("/api/roi/config", next);
     roiConfig = next;
+    if (typeof renderRoiQuickBar === "function") renderRoiQuickBar(next.targets);
     hint.textContent = "Saved";
   } catch (e) {
     hint.textContent = `Save failed: ${e}`;
@@ -892,3 +895,4 @@ document.getElementById("roi-stop-btn")?.addEventListener("click", stopRoi);
 
 // ─── Init ─────────────────────────────────────────────────────────
 loadJsConfig().then(() => gameLoop());
+loadRoiConfig(); // for the ROI quick bar under the live video
