@@ -770,3 +770,48 @@ input:focus {
 .video-msg-error {
   color: var(--accent);
 }
+
+/* ─── Video: fullscreen / picture-in-picture ────────────────────── */
+.video-mode-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.video-section:fullscreen {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 12px;
+  background: var(--bg-0);
+}
+
+.video-section:fullscreen .video-wrap {
+  flex: 1;
+  min-height: 0;
+  aspect-ratio: auto;
+}
+
+.video-pip-placeholder {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+body.pip-body {
+  display: block;
+  min-height: 0;
+  margin: 0;
+  background: #000;
+}
+
+.video-wrap.in-pip {
+  width: 100vw;
+  height: 100vh;
+  aspect-ratio: auto;
+  border: none;
+  border-radius: 0;
+}

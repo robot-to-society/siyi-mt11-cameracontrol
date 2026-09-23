@@ -1,6 +1,7 @@
 // Live video panel: WHEP playback, click-to-track, tracking box overlay (SSE).
 import { WhepPlayer } from "./whep.js";
 import { contentRect, previewBox, toNormalized, trackToDisplay } from "./video_geometry.js";
+import { setupDisplayModes } from "./video_display.js";
 
 const WHEP_URL = "/api/video/whep"; // proxied to MediaMTX by the app
 const BOX_MIN = 32;
@@ -36,6 +37,12 @@ const latencyText = document.getElementById("video-latency");
 const boxInput = document.getElementById("video-box-px");
 const cancelBtn = document.getElementById("video-cancel-btn");
 const msgText = document.getElementById("video-msg");
+const section = document.getElementById("video-section");
+
+// The wrap may live in a Document PiP window; draw/size with that window's clock and DPR.
+function hostWindow() {
+  return wrap.ownerDocument.defaultView ?? window;
+}
 
 let snapshot = null; // latest /api/ai/events payload
 let hover = null; // { nx, ny }
@@ -107,7 +114,7 @@ function trackingAllowed() {
 
 // ── drawing ─────────────────────────────────────────────────────
 function resizeCanvas() {
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = hostWindow().devicePixelRatio || 1;
   canvas.width = Math.round(wrap.clientWidth * dpr);
   canvas.height = Math.round(wrap.clientHeight * dpr);
   canvas.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -123,7 +130,8 @@ function strokeRect(ctx, r, color, dashed = false, width = 2) {
 }
 
 function draw() {
-  requestAnimationFrame(draw);
+  // main-window rAF pauses when the tab is hidden, which would freeze the PiP overlay
+  hostWindow().requestAnimationFrame(draw);
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, wrap.clientWidth, wrap.clientHeight);
   const rect = pictureRect();
@@ -230,6 +238,15 @@ setInterval(async () => {
 }, 1000);
 
 new ResizeObserver(resizeCanvas).observe(wrap);
+setupDisplayModes({
+  section,
+  wrap,
+  video,
+  fullBtn: document.getElementById("video-full-btn"),
+  pipBtn: document.getElementById("video-pip-btn"),
+  onLayoutChange: resizeCanvas,
+  onMessage: setMessage,
+});
 resizeCanvas();
 requestAnimationFrame(draw);
 openEvents();

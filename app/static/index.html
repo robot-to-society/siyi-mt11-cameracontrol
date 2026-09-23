@@ -24,12 +24,14 @@
       </nav>
 
       <div id="tab-camera">
-        <section class="video-section">
+        <section id="video-section" class="video-section">
           <div class="video-head">
             <span class="video-title">LIVE</span>
             <span id="video-conn-badge" class="video-badge warn">CONNECTING</span>
             <span id="video-track-badge" class="video-badge">NO TARGET</span>
             <span id="video-latency" class="muted video-latency">-</span>
+            <button id="video-pip-btn" class="ghost-btn video-mode-btn" title="ピクチャーインピクチャー">PiP</button>
+            <button id="video-full-btn" class="ghost-btn video-mode-btn" title="全画面（Escで戻る）">Full</button>
           </div>
           <div id="video-wrap" class="video-wrap">
             <video id="video-el" autoplay muted playsinline></video>
