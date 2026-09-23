@@ -84,6 +84,33 @@ function setStatusUI(data) {
 
   updateRoiUI(data.roi, data.vehicle);
   updateTimeSyncUI(data.time_sync);
+  updateTfCardUI(data.tf_card);
+}
+
+const TF_STATUS_TEXT = {
+  not_inserted: "未挿入",
+  mount_failed: "マウント失敗",
+  low_space: "空き容量不足",
+  read_only: "読み取り専用",
+  read_error: "読み取りエラー",
+};
+const TF_LOW_PERCENT = 10;
+
+function updateTfCardUI(tf) {
+  const el = document.getElementById("tf-card-text");
+  if (!el) return;
+  if (!tf) {
+    el.textContent = "取得中...";
+    el.classList.remove("roi-error");
+    return;
+  }
+  const capacity = tf.total_gb > 0
+    ? `空き ${tf.free_gb.toFixed(2)} / ${tf.total_gb.toFixed(2)} GB（${tf.free_percent}%）${tf.filesystem}`
+    : "";
+  const problem = TF_STATUS_TEXT[tf.status];
+  el.textContent = [problem, capacity].filter(Boolean).join(" / ") || tf.status;
+  const low = tf.free_percent !== null && tf.free_percent < TF_LOW_PERCENT;
+  el.classList.toggle("roi-error", Boolean(problem) || low);
 }
 
 function updateTimeSyncUI(ts) {

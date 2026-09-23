@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from app.tf_card import TfCardInfo, parse_tf_card
 from app.ai_tracking import (
     AI_MODE_RESULT,
     AI_SELECT_RESULT,
@@ -64,6 +65,16 @@ def parse_firmware_versions(payload: bytes) -> Optional[dict]:
     return versions
 
 
+# Commands this app must never send. 0x48 formats the SD card (and the SDK text mislabels
+# TF-card info as 0x48 in one place), so it is blocked at the lowest send level.
+FORBIDDEN_CMD_IDS = frozenset({0x48})
+
+
+def _check_allowed(cmd_id: int) -> None:
+    if cmd_id in FORBIDDEN_CMD_IDS:
+        raise ValueError(f"CMD 0x{cmd_id:02X} is blocked (SD card format)")
+
+
 DETECTION_HISTORY_S = 1.5  # keep enough candidate frames to cover the video latency
 DETECTION_HISTORY_MAX = 60
 
@@ -92,6 +103,7 @@ class CameraState:
     firmware: Optional[dict] = None  # 0x01 (camera/gimbal/zoom versions)
     utc_set_ok: Optional[bool] = None  # last 0x30 ACK
     camera_time: Optional[tuple[int, float]] = None  # last 0x40: (camera unix us, monotonic received)
+    tf_card: Optional[TfCardInfo] = None  # last 0x49
 
 
 class CameraClient:
@@ -180,6 +192,7 @@ class CameraClient:
             self.sock.sendall(packet)
 
     def send_cmd(self, cmd_id: int, data: bytes = b"", ctrl: int = 0x01) -> None:
+        _check_allowed(cmd_id)
         seq = self._next_seq()
         packet = make_packet(cmd_id=cmd_id, data=data, ctrl=ctrl, seq=seq)
         self._send_raw(packet)
@@ -195,6 +208,10 @@ class CameraClient:
     def request_system_time(self) -> None:
         """CMD 0x40: Request System Time (TCP)"""
         self.send_cmd(cmd_id=0x40, data=b"", ctrl=0x01)
+
+    def request_tf_card_info(self) -> None:
+        """CMD 0x49: Request TF Card Information (TCP). NOT 0x48, which formats the card."""
+        self.send_cmd(cmd_id=0x49, data=b"", ctrl=0x01)
 
     def request_status(self) -> None:
         self.send_cmd(cmd_id=0x0A, data=b"", ctrl=0x01)
@@ -263,6 +280,7 @@ class CameraClient:
 
     def send_udp_cmd(self, cmd_id: int, data: bytes = b"", ctrl: int = 0x01) -> None:
         """UDP経由でコマンドを送信 (ジンバル速度制御など)"""
+        _check_allowed(cmd_id)
         self._ensure_udp_socket()
         seq = self._next_seq()
         packet = make_packet(cmd_id=cmd_id, data=data, ctrl=ctrl, seq=seq)
@@ -456,6 +474,10 @@ class CameraClient:
             track = parse_track_frame(payload, received_at=time.monotonic())
             if track is not None:
                 self.state.track = track
+        elif cmd_id == 0x49:
+            info = parse_tf_card(payload)
+            if info is not None:
+                self.state.tf_card = info
         elif cmd_id == 0x30 and len(payload) >= 1:
             self.state.utc_set_ok = payload[0] == 1
         elif cmd_id == 0x40 and len(payload) >= 8:

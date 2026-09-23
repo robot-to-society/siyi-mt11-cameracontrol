@@ -229,3 +229,24 @@ class TestTimeCommands:
         assert client.state.utc_set_ok is False
         client._handle_frame(0x40, struct.pack("<QI", 1_790_000_000_000_000, 5000))
         assert client.state.camera_time == (1_790_000_000_000_000, 7.5)
+
+
+class TestTfCard:
+    def test_request_uses_0x49_never_0x48(self):
+        client = RecordingClient()
+        client.request_tf_card_info()
+        assert client.sent == [("tcp", 0x49, b"")]
+
+    def test_handle_0x49(self):
+        client = CameraClient()
+        client._handle_frame(0x49, struct.pack("<BBHH", 2, 1, 3200, 800))
+        assert client.state.tf_card.total_gb == pytest.approx(32.0)
+        assert client.state.tf_card.free_gb == pytest.approx(8.0)
+
+    def test_format_command_0x48_is_blocked(self):
+        # 0x48 formats the SD card; the SDK text mislabels TF-card info as 0x48 in one place.
+        client = CameraClient()
+        with pytest.raises(ValueError):
+            client.send_cmd(0x48, b"")
+        with pytest.raises(ValueError):
+            client.send_udp_cmd(0x48, b"")

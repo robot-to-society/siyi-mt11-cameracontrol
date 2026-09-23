@@ -110,6 +110,8 @@ def background_status_loop() -> None:
             camera.request_zoom_level()
             if tick % 10 == 0:
                 camera.request_video_mode()
+            if tick % 10 == 0:
+                camera.request_tf_card_info()  # 0x49 SD card status / free space
             if tick % 60 == 0:
                 camera.request_firmware_version()  # 0.0.0 during the camera's ~30 s boot
             if tick % 30 == 0 or camera.state.stream_width == 0:
@@ -170,6 +172,21 @@ def get_status() -> dict:
         "roi": _roi_status(),
         "vehicle": _vehicle_status(),
         "time_sync": _time_sync_status(),
+        "tf_card": _tf_card_status(),
+    }
+
+
+def _tf_card_status():
+    info = camera.state.tf_card
+    if info is None:
+        return None
+    ratio = info.free_ratio
+    return {
+        "status": info.status,
+        "filesystem": info.filesystem,
+        "total_gb": info.total_gb,
+        "free_gb": info.free_gb,
+        "free_percent": round(ratio * 100, 1) if ratio is not None else None,
     }
 
 
