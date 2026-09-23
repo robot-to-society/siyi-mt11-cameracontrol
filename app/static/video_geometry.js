@@ -44,3 +44,28 @@ export function trackToDisplay(track, rect) {
     h: track.h * rect.h,
   };
 }
+
+/** Smallest detection box (normalized corners) containing the point, or null. */
+export function detectionAt(detections, nx, ny) {
+  let best = null;
+  let bestArea = Infinity;
+  for (const d of detections) {
+    if (nx < d.x0 || nx > d.x1 || ny < d.y0 || ny > d.y1) continue;
+    const area = (d.x1 - d.x0) * (d.y1 - d.y0);
+    if (area < bestArea) {
+      best = d;
+      bestArea = area;
+    }
+  }
+  return best;
+}
+
+/** Normalized corner box (0x5F detection) -> display rect. */
+export function detectionToDisplay(d, rect) {
+  return {
+    x: rect.x + d.x0 * rect.w,
+    y: rect.y + d.y0 * rect.h,
+    w: (d.x1 - d.x0) * rect.w,
+    h: (d.y1 - d.y0) * rect.h,
+  };
+}

@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 import app.video_routes as video_routes
-from app.ai_tracking import StreamBox, TrackTarget
+from app.ai_tracking import Detection, DetectionFrame, StreamBox, TrackTarget
 from app.camera_protocol import CameraState
 
 
@@ -17,6 +17,9 @@ class FakeCamera:
 
     def ai_select_box(self, box):
         self.calls.append(("select", box))
+
+    def ai_select_point(self, x, y):
+        self.calls.append(("point", x, y))
 
     def ai_cancel_tracking(self):
         self.calls.append(("cancel",))
@@ -179,3 +182,46 @@ def test_roi_start_cancels_ai_tracking(client, monkeypatch):
     monkeypatch.setattr(main, "roi", Roi())
     assert client.post("/api/roi/start", json={"target_id": "roi_1"}).status_code == 200
     assert cancelled == [client.cam]
+
+
+def frame_at(t, *dets):
+    return DetectionFrame(model=0, pts_us=0, detections=tuple(dets), received_at=t)
+
+
+PERSON = Detection(0.4, 0.4, 0.6, 0.8, 0.88, 0, "person")
+
+
+class TestTrackDetection:
+    def test_hit_sends_point_at_detection_centre(self, client, monkeypatch):
+        monkeypatch.setattr(video_routes.time, "monotonic", lambda: 10.2)
+        client.cam.state.detection_history = (frame_at(10.0, PERSON),)
+        res = client.post("/api/ai/track-detection", json={"x": 0.45, "y": 0.5})
+        assert res.status_code == 200
+        body = res.json()
+        assert body["detection"]["class_name"] == "person"
+        assert body["point"] == {"x": 960, "y": 648}
+        assert client.cam.calls == [("ai_mode", True), ("point", 960, 648)]
+        assert client.roi.stopped == 1
+
+    def test_miss_is_404(self, client, monkeypatch):
+        monkeypatch.setattr(video_routes.time, "monotonic", lambda: 10.2)
+        client.cam.state.detection_history = (frame_at(10.0, PERSON),)
+        assert client.post("/api/ai/track-detection", json={"x": 0.1, "y": 0.1}).status_code == 404
+        assert client.cam.calls == []
+
+    def test_old_frames_ignored(self, client, monkeypatch):
+        monkeypatch.setattr(video_routes.time, "monotonic", lambda: 20.0)
+        client.cam.state.detection_history = (frame_at(10.0, PERSON),)
+        assert client.post("/api/ai/track-detection", json={"x": 0.45, "y": 0.5}).status_code == 404
+
+    def test_rgb_only(self, client):
+        client.cam.state.video_mode_name = "thermal"
+        assert client.post("/api/ai/track-detection", json={"x": 0.45, "y": 0.5}).status_code == 409
+
+
+def test_snapshot_includes_recent_detections():
+    state = CameraState()
+    state.detection_history = (frame_at(10.0, PERSON),)
+    snap = video_routes.ai_snapshot(state, now=10.3)
+    assert snap["detections"][0]["class_name"] == "person"
+    assert video_routes.ai_snapshot(state, now=11.0)["detections"] == []

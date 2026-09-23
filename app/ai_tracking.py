@@ -154,3 +154,112 @@ def find_preset(key: str) -> EncodingPreset:
 def encode_encoding_params(preset: EncodingPreset, stream_type: int = 1) -> bytes:
     """0x21 payload (bitrate is not supported by MT11 yet -> 0)."""
     return struct.pack("<BBHHHB", stream_type, preset.codec_id, preset.width, preset.height, 0, 0)
+
+
+# ── 0x5F AI candidate boxes / point selection ─────────────────────
+# Class ids of the general model; assumed to match 0x50 Target_ID (person/car/bus/truck).
+DETECTION_CLASSES = {0: "person", 1: "car", 2: "bus", 3: "truck"}
+_CANDIDATE_HEAD = struct.Struct("<BBQB")  # mode, Cur_AI_model, Pts(us), Obj_num
+_U16_MAX = 65535.0
+FOLLOW_MIN_IOU = 0.1
+
+
+@dataclass(frozen=True)
+class Detection:
+    x0: float  # normalized box
+    y0: float
+    x1: float
+    y1: float
+    score: float
+    class_id: int
+    class_name: str
+
+    def contains(self, nx: float, ny: float) -> bool:
+        return self.x0 <= nx <= self.x1 and self.y0 <= ny <= self.y1
+
+    @property
+    def area(self) -> float:
+        return max(0.0, self.x1 - self.x0) * max(0.0, self.y1 - self.y0)
+
+    @property
+    def center(self) -> tuple[float, float]:
+        return (self.x0 + self.x1) / 2.0, (self.y0 + self.y1) / 2.0
+
+
+@dataclass(frozen=True)
+class DetectionFrame:
+    model: int
+    pts_us: int
+    detections: tuple[Detection, ...]
+    received_at: float
+
+
+def parse_candidate_frame(payload: bytes, received_at: float) -> Optional[DetectionFrame]:
+    """0x5F push: header + struct-of-arrays (lx, ly, rx, ry, score as u16[n]; class_id u8[n])."""
+    if len(payload) < _CANDIDATE_HEAD.size:
+        return None
+    _mode, model, pts, n = _CANDIDATE_HEAD.unpack_from(payload)
+    if len(payload) < _CANDIDATE_HEAD.size + n * 11:
+        return None
+    offset = _CANDIDATE_HEAD.size
+    arrays = []
+    for _ in range(5):
+        arrays.append(struct.unpack_from(f"<{n}H", payload, offset))
+        offset += 2 * n
+    class_ids = payload[offset : offset + n]
+    detections = tuple(
+        Detection(
+            x0=arrays[0][i] / _U16_MAX,
+            y0=arrays[1][i] / _U16_MAX,
+            x1=arrays[2][i] / _U16_MAX,
+            y1=arrays[3][i] / _U16_MAX,
+            score=arrays[4][i] / _U16_MAX,
+            class_id=class_ids[i],
+            class_name=DETECTION_CLASSES.get(class_ids[i], f"class_{class_ids[i]}"),
+        )
+        for i in range(n)
+    )
+    return DetectionFrame(model=model, pts_us=pts, detections=detections, received_at=received_at)
+
+
+def encode_ai_select_point(x: int, y: int) -> bytes:
+    """0x56 payload for point selection (rx = ry = 0)."""
+    return struct.pack("<BHHHH", 1, x, y, 0, 0)
+
+
+def normalized_to_stream_point(nx: float, ny: float, width: int, height: int) -> tuple[int, int]:
+    x = math.floor(nx * width + 0.5)
+    y = math.floor(ny * height + 0.5)
+    return max(0, min(x, width - 1)), max(0, min(y, height - 1))
+
+
+def _iou(a: Detection, b: Detection) -> float:
+    ix = max(0.0, min(a.x1, b.x1) - max(a.x0, b.x0))
+    iy = max(0.0, min(a.y1, b.y1) - max(a.y0, b.y0))
+    inter = ix * iy
+    union = a.area + b.area - inter
+    return inter / union if union > 0 else 0.0
+
+
+def pick_detection(frames, nx: float, ny: float) -> Optional[Detection]:
+    """Detection under a click, followed to the newest frame.
+
+    The operator clicks on delayed video, so the click is tested against every recent frame
+    (smallest containing box wins, newer frames break ties). The match is then followed to the
+    newest frame by best IoU with the same class, so the camera gets the object's current position.
+    """
+    frames = list(frames)
+    hits = [
+        (det.area, -index, det)
+        for index, frame in enumerate(frames)
+        for det in frame.detections
+        if det.contains(nx, ny)
+    ]
+    if not hits:
+        return None
+    chosen = min(hits, key=lambda h: (h[0], h[1]))[2]
+    same_class = [d for d in frames[-1].detections if d.class_id == chosen.class_id]
+    if not same_class:
+        return chosen
+    best = max(same_class, key=lambda d: _iou(d, chosen))
+    return best if _iou(best, chosen) >= FOLLOW_MIN_IOU else chosen

@@ -5,7 +5,7 @@
 const PIP_DEFAULT_W = 640;
 const PIP_DEFAULT_H = 360;
 
-export function setupDisplayModes({ section, wrap, video, fullBtn, pipBtn, onLayoutChange, onMessage }) {
+export function setupDisplayModes({ section, wrap, video, fullBtn, pipBtn, onLayoutChange, onMessage, onPipWindow }) {
   let pipWindow = null;
   let placeholder = null;
 
@@ -65,6 +65,7 @@ export function setupDisplayModes({ section, wrap, video, fullBtn, pipBtn, onLay
     pipWindow = win;
     pipBtn.textContent = "Close PiP";
     win.addEventListener("resize", onLayoutChange);
+    onPipWindow?.(win);
     win.addEventListener("pagehide", restoreFromPip, { once: true });
     onLayoutChange();
   }

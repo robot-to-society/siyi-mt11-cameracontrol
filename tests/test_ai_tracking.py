@@ -117,3 +117,85 @@ class TestEncoding:
 def test_half_pixel_rounds_up_like_js_math_round(box_px, expected_lx):
     # JS Math.round rounds .5 up; Python round() is banker's rounding -> must match the preview
     assert click_to_stream_box(0.5, 0.5, 1920, 1080, box_px).lx == expected_lx
+
+
+# ── Detection candidates (0x5F) / point selection ─────────────────
+from app.ai_tracking import (  # noqa: E402
+    Detection,
+    DetectionFrame,
+    encode_ai_select_point,
+    normalized_to_stream_point,
+    parse_candidate_frame,
+    pick_detection,
+)
+
+
+def candidate_payload(boxes, model=0, pts=123456):
+    """boxes: list of (lx, ly, rx, ry, score, class_id) in 0..1 floats."""
+    n = len(boxes)
+    q = lambda v: int(round(v * 65535))  # noqa: E731
+    head = struct.pack("<BBQB", 5, model, pts, n)
+    arrays = b"".join(
+        struct.pack(f"<{n}H", *[q(b[i]) for b in boxes]) for i in range(5)
+    )
+    return head + arrays + bytes(b[5] for b in boxes)
+
+
+def det(x0, y0, x1, y1, class_id=0, score=0.9):
+    return Detection(x0, y0, x1, y1, score, class_id, "person" if class_id == 0 else "car")
+
+
+class TestCandidateFrame:
+    def test_parse_struct_of_arrays(self):
+        payload = candidate_payload([(0.1, 0.2, 0.3, 0.4, 0.9, 0), (0.5, 0.5, 0.7, 0.9, 0.5, 1)])
+        f = parse_candidate_frame(payload, received_at=2.0)
+        assert f.model == 0 and f.pts_us == 123456 and f.received_at == 2.0
+        assert len(f.detections) == 2
+        d0, d1 = f.detections
+        assert (d0.x0, d0.y0, d0.x1, d0.y1) == pytest.approx((0.1, 0.2, 0.3, 0.4), abs=1e-4)
+        assert d0.class_name == "person" and d1.class_name == "car"
+        assert d1.score == pytest.approx(0.5, abs=1e-4)
+
+    def test_empty_frame(self):
+        f = parse_candidate_frame(candidate_payload([]), received_at=0.0)
+        assert f.detections == ()
+
+    def test_truncated_returns_none(self):
+        payload = candidate_payload([(0.1, 0.2, 0.3, 0.4, 0.9, 0)])
+        assert parse_candidate_frame(payload[:-1], 0.0) is None
+        assert parse_candidate_frame(b"\x05\x00", 0.0) is None  # enable ACK only
+
+
+class TestPointSelect:
+    def test_point_matches_sdk_example(self):
+        packet = make_packet(0x56, encode_ai_select_point(960, 540), seq=0)
+        assert packet == sdk_bytes("55 66 01 09 00 00 00 56 01 C0 03 1C 02 00 00 00 00 39 F9")
+
+    def test_normalized_to_stream_point(self):
+        assert normalized_to_stream_point(0.5, 0.5, 1920, 1080) == (960, 540)
+        assert normalized_to_stream_point(1.0, 1.0, 1920, 1080) == (1919, 1079)
+        assert normalized_to_stream_point(0.0, 0.0, 1920, 1080) == (0, 0)
+
+
+class TestPickDetection:
+    def frame(self, dets, t):
+        return DetectionFrame(model=0, pts_us=0, detections=tuple(dets), received_at=t)
+
+    def test_no_hit(self):
+        assert pick_detection([self.frame([det(0.1, 0.1, 0.2, 0.2)], 1.0)], 0.5, 0.5) is None
+        assert pick_detection([], 0.5, 0.5) is None
+
+    def test_smallest_containing_box_wins(self):
+        big, small = det(0.0, 0.0, 0.8, 0.8), det(0.4, 0.4, 0.6, 0.6)
+        assert pick_detection([self.frame([big, small], 1.0)], 0.5, 0.5) == small
+
+    def test_hit_in_older_frame_follows_object_to_newest_frame(self):
+        # object moved right between frames; click matches where it was (delayed video)
+        old = self.frame([det(0.40, 0.40, 0.50, 0.50)], 1.0)
+        new = self.frame([det(0.45, 0.40, 0.55, 0.50), det(0.80, 0.1, 0.9, 0.2)], 1.5)
+        assert pick_detection([old, new], 0.42, 0.45) == det(0.45, 0.40, 0.55, 0.50)
+
+    def test_other_class_not_followed(self):
+        old = self.frame([det(0.40, 0.40, 0.50, 0.50, class_id=0)], 1.0)
+        new = self.frame([det(0.45, 0.40, 0.55, 0.50, class_id=1)], 1.5)
+        assert pick_detection([old, new], 0.42, 0.45) == det(0.40, 0.40, 0.50, 0.50, class_id=0)

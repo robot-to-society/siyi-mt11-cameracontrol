@@ -50,3 +50,19 @@ test("previewBox odd box size matches server rounding", () => {
   assert.equal(previewBox(0.5, 0.5, r, 1920, 1080, 151).x, 885);
   assert.equal(previewBox(0.5, 0.5, r, 1920, 1080, 149).x, 886);
 });
+
+import { detectionAt, detectionToDisplay } from "../../app/static/video_geometry.js";
+
+test("detectionAt picks the smallest box containing the point", () => {
+  const big = { x0: 0, y0: 0, x1: 0.8, y1: 0.8 };
+  const small = { x0: 0.4, y0: 0.4, x1: 0.6, y1: 0.6 };
+  assert.equal(detectionAt([big, small], 0.5, 0.5), small);
+  assert.equal(detectionAt([big, small], 0.1, 0.1), big);
+  assert.equal(detectionAt([big, small], 0.9, 0.9), null);
+  assert.equal(detectionAt([], 0.5, 0.5), null);
+});
+
+test("detectionToDisplay maps corner box to picture rect", () => {
+  const r = { x: 100, y: 50, w: 800, h: 450 };
+  assert.deepEqual(detectionToDisplay({ x0: 0.25, y0: 0.5, x1: 0.5, y1: 1 }, r), { x: 300, y: 275, w: 200, h: 225 });
+});

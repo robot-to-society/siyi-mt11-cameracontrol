@@ -1,6 +1,13 @@
 // Live video panel: WHEP playback, click-to-track, tracking box overlay (SSE).
 import { WhepPlayer } from "./whep.js";
-import { contentRect, previewBox, toNormalized, trackToDisplay } from "./video_geometry.js";
+import {
+  contentRect,
+  detectionAt,
+  detectionToDisplay,
+  previewBox,
+  toNormalized,
+  trackToDisplay,
+} from "./video_geometry.js";
 import { setupDisplayModes } from "./video_display.js";
 
 const WHEP_URL = "/api/video/whep"; // proxied to MediaMTX by the app
@@ -27,6 +34,8 @@ const CONN_LABELS = {
   closed: ["CLOSED", "bad"],
 };
 const TRACK_COLORS = { ok: "#43d39e", warn: "#ffc34d", bad: "#ff4d5c", "": "#8f98ab" };
+const DETECTION_COLOR = "rgba(77, 208, 255, 0.7)";
+const DETECTION_HOVER_COLOR = "#4dd0ff";
 
 const wrap = document.getElementById("video-wrap");
 const video = document.getElementById("video-el");
@@ -48,6 +57,7 @@ let snapshot = null; // latest /api/ai/events payload
 let hover = null; // { nx, ny }
 let flash = null; // { nx, ny, until }
 let lastClickAt = 0; // performance.now() of the last track request
+let shiftDown = false; // Shift+click selects a camera-detected object
 
 function errorDetail(body, status) {
   const d = body?.detail;
@@ -129,6 +139,23 @@ function strokeRect(ctx, r, color, dashed = false, width = 2) {
   ctx.restore();
 }
 
+function drawDetections(ctx, rect) {
+  const detections = snapshot?.detections ?? [];
+  const target = hover ? detectionAt(detections, hover.nx, hover.ny) : null;
+  for (const d of detections) {
+    const r = detectionToDisplay(d, rect);
+    const isTarget = d === target;
+    strokeRect(ctx, r, isTarget ? DETECTION_HOVER_COLOR : DETECTION_COLOR, !isTarget, isTarget ? 3 : 1.5);
+    if (isTarget) {
+      ctx.save();
+      ctx.fillStyle = DETECTION_HOVER_COLOR;
+      ctx.font = "12px sans-serif";
+      ctx.fillText(`${d.class_name} ${Math.round(d.score * 100)}%`, r.x + 2, Math.max(12, r.y - 4));
+      ctx.restore();
+    }
+  }
+}
+
 function draw() {
   // main-window rAF pauses when the tab is hidden, which would freeze the PiP overlay
   hostWindow().requestAnimationFrame(draw);
@@ -143,7 +170,9 @@ function draw() {
     const cls = (TRACK_LABELS[track.status] ?? ["", ""])[1];
     strokeRect(ctx, trackToDisplay(track, rect), TRACK_COLORS[cls], false, 3);
   }
-  if (hover && trackingAllowed()) {
+  if (shiftDown && trackingAllowed()) {
+    drawDetections(ctx, rect);
+  } else if (hover && trackingAllowed()) {
     const b = previewBox(hover.nx, hover.ny, rect, sw, sh, currentBoxPx());
     if (b) strokeRect(ctx, b, "rgba(255,255,255,0.8)", true);
   }
@@ -156,7 +185,43 @@ function draw() {
 // ── interaction ─────────────────────────────────────────────────
 canvas.addEventListener("mousemove", (ev) => {
   hover = toNormalized(...localPoint(ev), pictureRect());
+  shiftDown = ev.shiftKey;
 });
+
+// Track Shift in whichever window hosts the video (main page or Document PiP)
+function bindShiftKey(win) {
+  const update = (ev) => { shiftDown = ev.shiftKey; };
+  win.addEventListener("keydown", update);
+  win.addEventListener("keyup", update);
+  win.addEventListener("blur", () => { shiftDown = false; });
+}
+bindShiftKey(window);
+
+async function postTrack(url, payload) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(errorDetail(body, res.status));
+    err.status = res.status;
+    throw err;
+  }
+  return body;
+}
+
+async function trackDetection(p) {
+  try {
+    const body = await postTrack("/api/ai/track-detection", { x: p.nx, y: p.ny });
+    const d = body.detection;
+    setMessage(`検出物体を選択: ${d.class_name} ${Math.round(d.score * 100)}%（点 [${body.point.x},${body.point.y}]）`);
+  } catch (e) {
+    const text = e.status === 404 ? "その位置に検出枠がありません" : `選択に失敗: ${e.message}`;
+    setMessage(text, true);
+  }
+}
 canvas.addEventListener("mouseleave", () => { hover = null; });
 
 canvas.addEventListener("click", async (ev) => {
@@ -166,16 +231,14 @@ canvas.addEventListener("click", async (ev) => {
   }
   const p = toNormalized(...localPoint(ev), pictureRect());
   if (!p) return; // clicked on the black bars
-  flash = { ...p, until: performance.now() + FLASH_MS };
   lastClickAt = performance.now();
+  if (ev.shiftKey) {
+    await trackDetection(p);
+    return;
+  }
+  flash = { ...p, until: performance.now() + FLASH_MS };
   try {
-    const res = await fetch("/api/ai/track-point", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ x: p.nx, y: p.ny, box_px: currentBoxPx() }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(errorDetail(body, res.status));
+    const body = await postTrack("/api/ai/track-point", { x: p.nx, y: p.ny, box_px: currentBoxPx() });
     const b = body.box;
     setMessage(`追跡指示を送信: [${b.lx},${b.ly}]-[${b.rx},${b.ry}]（${body.stream.width}×${body.stream.height}）`);
   } catch (e) {
@@ -246,6 +309,7 @@ setupDisplayModes({
   pipBtn: document.getElementById("video-pip-btn"),
   onLayoutChange: resizeCanvas,
   onMessage: setMessage,
+  onPipWindow: bindShiftKey,
 });
 resizeCanvas();
 requestAnimationFrame(draw);

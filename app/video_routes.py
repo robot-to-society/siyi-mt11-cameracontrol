@@ -24,6 +24,8 @@ from app.ai_tracking import (
     ENCODING_PRESETS,
     click_to_stream_box,
     find_preset,
+    normalized_to_stream_point,
+    pick_detection,
 )
 from app.camera_protocol import CameraState
 
@@ -38,12 +40,21 @@ TRACK_MAX_AGE_S = 1.0
 SSE_INTERVAL_S = 0.1
 SSE_KEEPALIVE_S = 2.0
 LEGACY_CENTER_BOX_PX = 200
+# Shift+click is tested against detection frames this recent (covers LTE video delay)
+DETECTION_LOOKBACK_S = 1.0
+# Boxes shown in the overlay must be fresh
+DETECTION_SHOW_MAX_AGE_S = 0.5
 
 
 class TrackPointPayload(BaseModel):
     x: float = Field(ge=0.0, le=1.0)
     y: float = Field(ge=0.0, le=1.0)
     box_px: int = Field(default=BOX_PX_DEFAULT, ge=BOX_PX_MIN, le=BOX_PX_MAX)
+
+
+class TrackDetectionPayload(BaseModel):
+    x: float = Field(ge=0.0, le=1.0)
+    y: float = Field(ge=0.0, le=1.0)
 
 
 class AiTrackingPayload(BaseModel):
@@ -65,7 +76,18 @@ def ai_snapshot(state: CameraState, now: float) -> dict:
         "ai_mode_result": state.ai_mode_result,
         "stream": {"width": state.stream_width, "height": state.stream_height},
         "video_mode": state.video_mode_name,
+        "detections": _latest_detections(state, now),
     }
+
+
+def _latest_detections(state: CameraState, now: float) -> list:
+    history = state.detection_history
+    if not history or now - history[-1].received_at > DETECTION_SHOW_MAX_AGE_S:
+        return []
+    return [
+        {"x0": d.x0, "y0": d.y0, "x1": d.x1, "y1": d.y1, "score": round(d.score, 2), "class_name": d.class_name}
+        for d in history[-1].detections
+    ]
 
 
 def _post_sdp(offer: bytes) -> tuple[int, bytes]:
@@ -94,13 +116,16 @@ def cancel_ai_tracking_async(camera: Any) -> None:
 def create_video_router(get_camera: Callable[[], Any], get_roi: Callable[[], Any]) -> APIRouter:
     router = APIRouter()
 
-    def start_tracking(nx: float, ny: float, box_px: int) -> dict:
-        camera = get_camera()
-        state = camera.state
+    def check_trackable(state: CameraState) -> None:
         if state.video_mode_name != "rgb":
             raise HTTPException(status_code=409, detail="AI tracking is available in RGB mode only")
         if state.stream_width <= 1 or state.stream_height <= 1:
             raise HTTPException(status_code=503, detail="stream resolution unknown (waiting for 0x20)")
+
+    def start_tracking(nx: float, ny: float, box_px: int) -> dict:
+        camera = get_camera()
+        state = camera.state
+        check_trackable(state)
         box = click_to_stream_box(nx, ny, state.stream_width, state.stream_height, box_px)
         get_roi().stop()  # the camera's tracker drives the gimbal from now on
         try:
@@ -114,6 +139,32 @@ def create_video_router(get_camera: Callable[[], Any], get_roi: Callable[[], Any
     @router.post("/api/ai/track-point")
     def api_track_point(payload: TrackPointPayload) -> dict:
         return start_tracking(payload.x, payload.y, payload.box_px)
+
+    @router.post("/api/ai/track-detection")
+    def api_track_detection(payload: TrackDetectionPayload) -> dict:
+        """Shift+click: select the camera-detected object under the click (0x56 point)."""
+        camera = get_camera()
+        state = camera.state
+        check_trackable(state)
+        now = time.monotonic()
+        frames = [f for f in state.detection_history if now - f.received_at <= DETECTION_LOOKBACK_S]
+        detection = pick_detection(frames, payload.x, payload.y) if frames else None
+        if detection is None:
+            raise HTTPException(status_code=404, detail="no detected object at that position")
+        cx, cy = detection.center
+        x, y = normalized_to_stream_point(cx, cy, state.stream_width, state.stream_height)
+        get_roi().stop()
+        try:
+            camera.set_ai_mode(True)
+            time.sleep(0.1)
+            camera.ai_select_point(x, y)
+        except OSError as exc:
+            raise HTTPException(status_code=502, detail=f"camera command failed: {exc}") from exc
+        return {
+            "ok": True,
+            "detection": {"class_name": detection.class_name, "score": round(detection.score, 2)},
+            "point": {"x": x, "y": y},
+        }
 
     @router.post("/api/ai/tracking")
     def api_ai_tracking(payload: AiTrackingPayload) -> dict:

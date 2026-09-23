@@ -8,12 +8,15 @@ from typing import Callable, Optional
 from app.ai_tracking import (
     AI_MODE_RESULT,
     AI_SELECT_RESULT,
+    DetectionFrame,
     EncodingParams,
     EncodingPreset,
     StreamBox,
     TrackTarget,
     encode_ai_select,
+    encode_ai_select_point,
     encode_encoding_params,
+    parse_candidate_frame,
     parse_encoding,
     parse_track_frame,
 )
@@ -50,6 +53,10 @@ def encode_gimbal_angle(yaw_deg: float, pitch_deg: float) -> bytes:
     return struct.pack("<hh", int(round(yaw_deg * 10.0)), int(round(pitch * 10.0)))
 
 
+DETECTION_HISTORY_S = 1.5  # keep enough candidate frames to cover the video latency
+DETECTION_HISTORY_MAX = 60
+
+
 @dataclass
 class CameraState:
     record_sta: int = 0
@@ -70,6 +77,7 @@ class CameraState:
     ai_select_result: Optional[str] = None  # last 0x56 ACK
     ai_select_at: float = 0.0
     track: Optional[TrackTarget] = None  # last 0x50 frame
+    detection_history: tuple[DetectionFrame, ...] = ()  # recent 0x5F frames (oldest first)
 
 
 class CameraClient:
@@ -302,6 +310,14 @@ class CameraClient:
         """CMD 0x56: Cancel tracking (TCP)"""
         self.send_cmd(cmd_id=0x56, data=encode_ai_select(None), ctrl=0x01)
 
+    def ai_select_point(self, x: int, y: int) -> None:
+        """CMD 0x56: point selection (camera picks the detected object at x,y) (TCP)"""
+        self.send_cmd(cmd_id=0x56, data=encode_ai_select_point(x, y), ctrl=0x01)
+
+    def set_candidate_push(self, enable: bool) -> None:
+        """CMD 0x5F: enable/disable AI candidate bounding box push (TCP)"""
+        self.send_cmd(cmd_id=0x5F, data=b"\x05" if enable else b"\x04", ctrl=0x01)
+
     def set_track_stream(self, enable: bool) -> None:
         """CMD 0x51: enable/disable 0x50 tracking box push to this connection (TCP)"""
         self.send_cmd(cmd_id=0x51, data=b"\x01" if enable else b"\x00", ctrl=0x01)
@@ -394,6 +410,14 @@ class CameraClient:
             track = parse_track_frame(payload, received_at=time.monotonic())
             if track is not None:
                 self.state.track = track
+        elif cmd_id == 0x5F:
+            frame = parse_candidate_frame(payload, received_at=time.monotonic())
+            if frame is not None:
+                recent = tuple(
+                    f for f in self.state.detection_history
+                    if frame.received_at - f.received_at <= DETECTION_HISTORY_S
+                )
+                self.state.detection_history = (*recent[-(DETECTION_HISTORY_MAX - 1):], frame)
         elif cmd_id == 0x21 and len(payload) >= 2:
             self.state.encoding_set_ok = payload[1] == 1
             self._notify_state_change()

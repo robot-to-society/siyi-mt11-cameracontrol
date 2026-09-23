@@ -144,3 +144,33 @@ def test_set_encoding_clears_stale_resolution():
     assert (client.state.stream_width, client.state.stream_height) == (0, 0)
     assert client.state.encoding is None
     assert client.state.encoding_set_ok is None
+
+
+class TestDetections:
+    def test_set_candidate_push_and_point(self):
+        client = RecordingClient()
+        client.set_candidate_push(True)
+        client.set_candidate_push(False)
+        client.ai_select_point(960, 540)
+        assert client.sent == [
+            ("tcp", 0x5F, b"\x05"),
+            ("tcp", 0x5F, b"\x04"),
+            ("tcp", 0x56, sdk_bytes("01 C0 03 1C 02 00 00 00 00")),
+        ]
+
+    def test_0x5f_frames_kept_as_recent_history(self, monkeypatch):
+        import app.camera_protocol as cp
+        from tests.test_ai_tracking import candidate_payload
+
+        clock = {"t": 100.0}
+        monkeypatch.setattr(cp.time, "monotonic", lambda: clock["t"])
+        client = CameraClient()
+        client._handle_frame(0x5F, b"\x05\x00")  # enable ACK: ignored
+        assert client.state.detection_history == ()
+        client._handle_frame(0x5F, candidate_payload([(0.1, 0.1, 0.2, 0.2, 0.9, 0)]))
+        clock["t"] = 101.0
+        client._handle_frame(0x5F, candidate_payload([(0.2, 0.1, 0.3, 0.2, 0.9, 0)]))
+        assert len(client.state.detection_history) == 2
+        clock["t"] = 103.0
+        client._handle_frame(0x5F, candidate_payload([]))
+        assert len(client.state.detection_history) == 1  # older than 1.5 s pruned
