@@ -248,7 +248,7 @@ tabBtns.forEach((btn) => {
 const AXIS_FUNCTIONS = ["none", "pan", "tilt", "zoom_abs", "zoom_speed", "zoom_step"];
 const BTN_FUNCTIONS = ["none", "shutter", "thermal_toggle", "center_gimbal", "record_toggle",
                        "focus_far", "focus_near", "thermal_gain_toggle", "ai_tracking_toggle",
-                       "gimbal_stop", "zoom_in_step", "zoom_out_step",
+                       "gimbal_stop", "zoom_in_step", "zoom_out_step", "zoom_1x",
                        ...Array.from({ length: 10 }, (_, i) => `roi_${i + 1}`), "roi_stop"];
 
 let jsConfig = {
@@ -616,6 +616,9 @@ function handleButtonPress(fn) {
       break;
     case "zoom_out_step":
       postJSON("/api/zoom/dec").catch(() => {});
+      break;
+    case "zoom_1x":
+      postJSON("/api/zoom/set", { zoom: 1.0 }).then(() => refreshStatus()).catch(() => {});
       break;
     case "roi_stop":
       stopRoi();
