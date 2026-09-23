@@ -81,6 +81,8 @@ function setStatusUI(data) {
   for (const btn of modeButtons) {
     btn.classList.toggle("active", btn.dataset.mode === currentMode);
   }
+
+  updateRoiUI(data.roi, data.vehicle);
 }
 
 async function refreshStatus() {
@@ -199,6 +201,7 @@ setInterval(refreshStatus, 1000);
 const tabBtns = Array.from(document.querySelectorAll(".tab-btn"));
 const tabCameraEl = document.getElementById("tab-camera");
 const tabJoystickEl = document.getElementById("tab-joystick");
+const tabRoiEl = document.getElementById("tab-roi");
 
 tabBtns.forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -207,7 +210,9 @@ tabBtns.forEach((btn) => {
     const tab = btn.dataset.tab;
     tabCameraEl.classList.toggle("hidden", tab !== "camera");
     tabJoystickEl.classList.toggle("hidden", tab !== "joystick");
+    tabRoiEl.classList.toggle("hidden", tab !== "roi");
     if (tab === "joystick") renderJoystickConfig();
+    if (tab === "roi") loadRoiConfig();
   });
 });
 
@@ -215,7 +220,8 @@ tabBtns.forEach((btn) => {
 const AXIS_FUNCTIONS = ["none", "pan", "tilt", "zoom_abs", "zoom_speed", "zoom_step"];
 const BTN_FUNCTIONS = ["none", "shutter", "thermal_toggle", "center_gimbal", "record_toggle",
                        "focus_far", "focus_near", "thermal_gain_toggle", "ai_tracking_toggle",
-                       "gimbal_stop", "zoom_in_step", "zoom_out_step"];
+                       "gimbal_stop", "zoom_in_step", "zoom_out_step",
+                       "roi_1", "roi_2", "roi_3", "roi_4", "roi_stop"];
 
 let jsConfig = {
   enabled: false,
@@ -579,6 +585,15 @@ function handleButtonPress(fn) {
     case "zoom_out_step":
       postJSON("/api/zoom/dec").catch(() => {});
       break;
+    case "roi_1":
+    case "roi_2":
+    case "roi_3":
+    case "roi_4":
+      toggleRoi(fn);
+      break;
+    case "roi_stop":
+      stopRoi();
+      break;
   }
 }
 
@@ -714,6 +729,153 @@ function toggleAiTracking() {
     .catch((e) => { connectionText.textContent = `AI tracking error: ${e}`; });
 }
 document.getElementById("ai-tracking-btn")?.addEventListener("click", toggleAiTracking);
+
+// ─── ROI (GPS target pointing) ────────────────────────────────────
+let roiActiveId = null;
+let roiConfig = null;
+
+function fmtNum(v, digits) {
+  return typeof v === "number" ? v.toFixed(digits) : "-";
+}
+
+function updateRoiUI(roi, vehicle) {
+  if (!roi || !vehicle) return;
+  roiActiveId = roi.active_target_id;
+  const badge = document.getElementById("roi-badge");
+  const statusText = document.getElementById("roi-status-text");
+  const vehicleText = document.getElementById("roi-vehicle-text");
+  const errorText = document.getElementById("roi-error-text");
+  if (!badge) return;
+
+  badge.textContent = roiActiveId ? roiActiveId.toUpperCase() : "OFF";
+  badge.className = `js-badge ${roiActiveId ? "connected" : "not-found"}`;
+  statusText.textContent = roiActiveId
+    ? `dist ${fmtNum(roi.distance_m, 0)} m / brg ${fmtNum(roi.bearing_deg, 1)}° / ` +
+      `cmd yaw ${fmtNum(roi.yaw_cmd_deg, 1)}° pitch ${fmtNum(roi.pitch_cmd_deg, 1)}°`
+    : "-";
+
+  if (vehicle.has_position) {
+    vehicleText.textContent =
+      `${fmtNum(vehicle.lat, 7)}, ${fmtNum(vehicle.lon, 7)} / alt ${fmtNum(vehicle.alt_msl, 1)} m / ` +
+      `hdg ${fmtNum(vehicle.heading_deg, 1)}° / age ${fmtNum(vehicle.age_s, 1)} s`;
+  } else {
+    vehicleText.textContent = vehicle.mavlink_connected ? "waiting for GLOBAL_POSITION_INT" : "MAVLink disconnected";
+  }
+  errorText.textContent = roi.last_error || vehicle.mavlink_error || "";
+
+  document.querySelectorAll(".roi-go-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.id === roiActiveId);
+  });
+}
+
+function startRoi(id) {
+  roiActiveId = id;
+  postJSON("/api/roi/start", { target_id: id })
+    .then(() => refreshStatus())
+    .catch((e) => { connectionText.textContent = `ROI error: ${e}`; });
+}
+
+function stopRoi() {
+  roiActiveId = null;
+  postJSON("/api/roi/stop")
+    .then(() => refreshStatus())
+    .catch((e) => { connectionText.textContent = `ROI error: ${e}`; });
+}
+
+function toggleRoi(id) {
+  if (roiActiveId === id) stopRoi();
+  else startRoi(id);
+}
+
+function makeInput(type, value, cls, attrs = {}) {
+  const input = document.createElement("input");
+  input.type = type;
+  input.value = value;
+  input.className = `js-num-input ${cls}`;
+  for (const [k, v] of Object.entries(attrs)) input.setAttribute(k, v);
+  return input;
+}
+
+function renderRoiTargets() {
+  const tbody = document.getElementById("roi-target-tbody");
+  if (!tbody || !roiConfig) return;
+  tbody.replaceChildren();
+  for (const t of roiConfig.targets) {
+    const tr = document.createElement("tr");
+    tr.dataset.id = t.id;
+    const idCell = document.createElement("td");
+    idCell.textContent = t.id;
+    const cells = [
+      makeInput("text", t.name, "roi-name", { maxlength: "64" }),
+      makeInput("number", t.lat, "roi-lat", { step: "0.0000001", min: "-90", max: "90" }),
+      makeInput("number", t.lon, "roi-lon", { step: "0.0000001", min: "-180", max: "180" }),
+      makeInput("number", t.alt_msl, "roi-alt", { step: "0.1" }),
+    ].map((input) => {
+      const td = document.createElement("td");
+      td.appendChild(input);
+      return td;
+    });
+    const goCell = document.createElement("td");
+    const goBtn = document.createElement("button");
+    goBtn.className = "mode-btn roi-go-btn";
+    goBtn.dataset.id = t.id;
+    goBtn.textContent = "Go";
+    goBtn.classList.toggle("active", t.id === roiActiveId);
+    goBtn.addEventListener("click", () => toggleRoi(t.id));
+    goCell.appendChild(goBtn);
+    tr.append(idCell, ...cells, goCell);
+    tbody.appendChild(tr);
+  }
+  document.getElementById("roi-mavlink-url").value = roiConfig.mavlink_url;
+  document.getElementById("roi-yaw-offset").value = roiConfig.yaw_offset_deg;
+}
+
+async function loadRoiConfig() {
+  try {
+    const res = await fetch("/api/roi/config");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    roiConfig = await res.json();
+    renderRoiTargets();
+  } catch (e) {
+    document.getElementById("roi-save-hint").textContent = `Load failed: ${e}`;
+  }
+}
+
+function collectRoiConfig() {
+  const rows = Array.from(document.querySelectorAll("#roi-target-tbody tr"));
+  const num = (row, cls) => parseFloat(row.querySelector(`.${cls}`).value);
+  return {
+    ...roiConfig,
+    mavlink_url: document.getElementById("roi-mavlink-url").value.trim(),
+    yaw_offset_deg: parseFloat(document.getElementById("roi-yaw-offset").value) || 0,
+    targets: rows.map((row) => ({
+      id: row.dataset.id,
+      name: row.querySelector(".roi-name").value.trim(),
+      lat: num(row, "roi-lat"),
+      lon: num(row, "roi-lon"),
+      alt_msl: num(row, "roi-alt"),
+    })),
+  };
+}
+
+document.getElementById("roi-save-btn")?.addEventListener("click", async () => {
+  const hint = document.getElementById("roi-save-hint");
+  const next = collectRoiConfig();
+  const invalid = next.targets.find((t) => [t.lat, t.lon, t.alt_msl].some(Number.isNaN));
+  if (invalid) {
+    hint.textContent = `${invalid.id}: 数値を入力してください`;
+    return;
+  }
+  try {
+    await postJSON("/api/roi/config", next);
+    roiConfig = next;
+    hint.textContent = "Saved";
+  } catch (e) {
+    hint.textContent = `Save failed: ${e}`;
+  }
+});
+
+document.getElementById("roi-stop-btn")?.addEventListener("click", stopRoi);
 
 // ─── Init ─────────────────────────────────────────────────────────
 loadJsConfig().then(() => gameLoop());

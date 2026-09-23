@@ -31,6 +31,12 @@ def make_packet(cmd_id: int, data: bytes = b"", ctrl: int = 0x01, seq: int = 0) 
     return bytes(packet)
 
 
+def encode_gimbal_angle(yaw_deg: float, pitch_deg: float) -> bytes:
+    """CMD 0x0E payload: int16 yaw/pitch in 0.1 deg (RFU, +yaw = left, +pitch = up)."""
+    pitch = max(-90.0, min(30.0, pitch_deg))
+    return struct.pack("<hh", int(round(yaw_deg * 10.0)), int(round(pitch * 10.0)))
+
+
 @dataclass
 class CameraState:
     record_sta: int = 0
@@ -48,11 +54,15 @@ class CameraState:
 
 
 class CameraClient:
+    MOTION_LOCK = 3
+    MOTION_FOLLOW = 4
+    MOTION_FPV = 5
+
     def __init__(self, host: str = "192.168.144.25", port: int = 37260):
         self.host = host
         self.port = port
         self.sock: Optional[socket.socket] = None
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()  # re-entrant: _send_raw() holds it while calling connect()
         self.seq = 0
         self.state = CameraState()
         self._stop_event = threading.Event()
@@ -211,6 +221,20 @@ class CameraClient:
         pitch_i = int(max(-100, min(100, round(pitch))))
         payload = struct.pack("<bb", yaw_i, pitch_i)
         self.send_udp_cmd(cmd_id=0x07, data=payload)
+
+    def set_gimbal_angle(self, yaw_deg: float, pitch_deg: float) -> None:
+        """CMD 0x0E: ジンバル角度指令 (UDP)
+        yaw: +=左, pitch: +=上 (pitch は -90〜+30 にクランプ)
+        """
+        self.send_udp_cmd(cmd_id=0x0E, data=encode_gimbal_angle(yaw_deg, pitch_deg))
+
+    def set_gimbal_motion_mode(self, mode: int) -> None:
+        """CMD 0x0C: モーションモード (TCP)
+        mode: 3=Lock, 4=Follow, 5=FPV
+        """
+        if mode not in (self.MOTION_LOCK, self.MOTION_FOLLOW, self.MOTION_FPV):
+            raise ValueError(f"unsupported motion mode: {mode}")
+        self.send_cmd(cmd_id=0x0C, data=struct.pack("<B", mode), ctrl=0x01)
 
     def center_gimbal(self, mode: int = 1) -> None:
         """CMD 0x08: センターコマンド (UDP)
