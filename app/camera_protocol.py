@@ -5,6 +5,23 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from app.tf_card import TfCardInfo, parse_tf_card
+from app.ai_tracking import (
+    AI_MODE_RESULT,
+    AI_SELECT_RESULT,
+    DetectionFrame,
+    EncodingParams,
+    EncodingPreset,
+    StreamBox,
+    TrackTarget,
+    encode_ai_select,
+    encode_ai_select_point,
+    encode_encoding_params,
+    parse_candidate_frame,
+    parse_encoding,
+    parse_track_frame,
+)
+
 
 def crc16_ccitt(data: bytes, init_crc: int = 0x0000) -> int:
     crc = init_crc & 0xFFFF
@@ -37,6 +54,31 @@ def encode_gimbal_angle(yaw_deg: float, pitch_deg: float) -> bytes:
     return struct.pack("<hh", int(round(yaw_deg * 10.0)), int(round(pitch * 10.0)))
 
 
+def parse_firmware_versions(payload: bytes) -> Optional[dict]:
+    """0x01 ACK: camera/gimbal/zoom uint32 (LE). Low 3 bytes = patch, minor, major; top byte = model."""
+    if len(payload) < 12:
+        return None
+    versions = {}
+    for name, offset in (("camera", 0), ("gimbal", 4), ("zoom", 8)):
+        patch_v, minor, major = payload[offset], payload[offset + 1], payload[offset + 2]
+        versions[name] = f"v{major}.{minor}.{patch_v}"
+    return versions
+
+
+# Commands this app must never send. 0x48 formats the SD card (and the SDK text mislabels
+# TF-card info as 0x48 in one place), so it is blocked at the lowest send level.
+FORBIDDEN_CMD_IDS = frozenset({0x48})
+
+
+def _check_allowed(cmd_id: int) -> None:
+    if cmd_id in FORBIDDEN_CMD_IDS:
+        raise ValueError(f"CMD 0x{cmd_id:02X} is blocked (SD card format)")
+
+
+DETECTION_HISTORY_S = 1.5  # keep enough candidate frames to cover the video latency
+DETECTION_HISTORY_MAX = 60
+
+
 @dataclass
 class CameraState:
     record_sta: int = 0
@@ -51,6 +93,17 @@ class CameraState:
     last_error: Optional[str] = None
     connected: bool = False
     updated_at: float = 0.0
+    encoding: Optional[EncodingParams] = None  # main stream (0x20)
+    encoding_set_ok: Optional[bool] = None  # last 0x21 ACK
+    ai_mode_result: Optional[str] = None  # last 0x55 ACK
+    ai_select_result: Optional[str] = None  # last 0x56 ACK
+    ai_select_at: float = 0.0
+    track: Optional[TrackTarget] = None  # last 0x50 frame
+    detection_history: tuple[DetectionFrame, ...] = ()  # recent 0x5F frames (oldest first)
+    firmware: Optional[dict] = None  # 0x01 (camera/gimbal/zoom versions)
+    utc_set_ok: Optional[bool] = None  # last 0x30 ACK
+    camera_time: Optional[tuple[int, float]] = None  # last 0x40: (camera unix us, monotonic received)
+    tf_card: Optional[TfCardInfo] = None  # last 0x49
 
 
 class CameraClient:
@@ -69,6 +122,9 @@ class CameraClient:
         self._recv_thread: Optional[threading.Thread] = None
         self._heartbeat_thread: Optional[threading.Thread] = None
         self._on_state_change: Optional[Callable[[CameraState], None]] = None
+        # Diagnostics: frames received per CMD_ID and the last payload of each (for /api/debug/rx)
+        self._rx_counts: dict[int, int] = {}
+        self._rx_last: dict[int, tuple[float, bytes]] = {}
 
     def set_on_state_change(self, callback: Callable[[CameraState], None]) -> None:
         self._on_state_change = callback
@@ -136,9 +192,26 @@ class CameraClient:
             self.sock.sendall(packet)
 
     def send_cmd(self, cmd_id: int, data: bytes = b"", ctrl: int = 0x01) -> None:
+        _check_allowed(cmd_id)
         seq = self._next_seq()
         packet = make_packet(cmd_id=cmd_id, data=data, ctrl=ctrl, seq=seq)
         self._send_raw(packet)
+
+    def request_firmware_version(self) -> None:
+        """CMD 0x01: Request Firmware Version (TCP)"""
+        self.send_cmd(cmd_id=0x01, data=b"", ctrl=0x01)
+
+    def set_utc_time(self, unix_us: int) -> None:
+        """CMD 0x30: Set UTC Time, UNIX epoch microseconds (TCP)"""
+        self.send_cmd(cmd_id=0x30, data=struct.pack("<Q", unix_us), ctrl=0x01)
+
+    def request_system_time(self) -> None:
+        """CMD 0x40: Request System Time (TCP)"""
+        self.send_cmd(cmd_id=0x40, data=b"", ctrl=0x01)
+
+    def request_tf_card_info(self) -> None:
+        """CMD 0x49: Request TF Card Information (TCP). NOT 0x48, which formats the card."""
+        self.send_cmd(cmd_id=0x49, data=b"", ctrl=0x01)
 
     def request_status(self) -> None:
         self.send_cmd(cmd_id=0x0A, data=b"", ctrl=0x01)
@@ -207,6 +280,7 @@ class CameraClient:
 
     def send_udp_cmd(self, cmd_id: int, data: bytes = b"", ctrl: int = 0x01) -> None:
         """UDP経由でコマンドを送信 (ジンバル速度制御など)"""
+        _check_allowed(cmd_id)
         self._ensure_udp_socket()
         seq = self._next_seq()
         packet = make_packet(cmd_id=cmd_id, data=data, ctrl=ctrl, seq=seq)
@@ -275,13 +349,35 @@ class CameraClient:
         """CMD 0x55: Enable/Disable AI Tracking Mode (TCP)"""
         self.send_cmd(cmd_id=0x55, data=struct.pack("<B", 1 if enable else 0), ctrl=0x01)
 
-    def ai_select_tracking(self, action: int, lx: int = 0, ly: int = 0, rx: int = 0, ry: int = 0) -> None:
-        """CMD 0x56: AI Select Tracking Target (TCP)
-        action: 1=Track, 0=Cancel
-        lx,ly: top-left coord; rx,ry: bottom-right coord (1280x720 stream)
-        """
-        payload = struct.pack("<BHHHH", action, lx, ly, rx, ry)
-        self.send_cmd(cmd_id=0x56, data=payload, ctrl=0x01)
+    def ai_select_box(self, box: StreamBox) -> None:
+        """CMD 0x56: AI Select Tracking Target, box selection in main-stream pixels (TCP)"""
+        self.send_cmd(cmd_id=0x56, data=encode_ai_select(box), ctrl=0x01)
+
+    def ai_cancel_tracking(self) -> None:
+        """CMD 0x56: Cancel tracking (TCP)"""
+        self.send_cmd(cmd_id=0x56, data=encode_ai_select(None), ctrl=0x01)
+
+    def ai_select_point(self, x: int, y: int) -> None:
+        """CMD 0x56: point selection (camera picks the detected object at x,y) (TCP)"""
+        self.send_cmd(cmd_id=0x56, data=encode_ai_select_point(x, y), ctrl=0x01)
+
+    def set_candidate_push(self, enable: bool) -> None:
+        """CMD 0x5F: enable/disable AI candidate bounding box push (TCP)"""
+        self.send_cmd(cmd_id=0x5F, data=b"\x05" if enable else b"\x04", ctrl=0x01)
+
+    def set_track_stream(self, enable: bool) -> None:
+        """CMD 0x51: enable/disable 0x50 tracking box push to this connection (TCP)"""
+        self.send_cmd(cmd_id=0x51, data=b"\x01" if enable else b"\x00", ctrl=0x01)
+
+    def set_encoding_params(self, preset: EncodingPreset) -> None:
+        """CMD 0x21: Set main stream encoding (TCP). Recording stream is separate.
+        The known resolution is cleared so click-to-track waits for a fresh 0x20
+        instead of mapping clicks onto the old resolution."""
+        self.state.stream_width = 0
+        self.state.stream_height = 0
+        self.state.encoding = None
+        self.state.encoding_set_ok = None
+        self.send_cmd(cmd_id=0x21, data=encode_encoding_params(preset), ctrl=0x01)
 
     def _heartbeat_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -347,17 +443,65 @@ class CameraClient:
 
             cmd_id = frame[7]
             payload = frame[8:-2]
+            self._rx_counts[cmd_id] = self._rx_counts.get(cmd_id, 0) + 1
+            self._rx_last[cmd_id] = (time.monotonic(), payload)
             self._handle_frame(cmd_id, payload)
 
+    def rx_debug(self, max_hex_bytes: int = 160) -> dict:
+        """Counts and last payload (hex) per received CMD_ID."""
+        now = time.monotonic()
+        return {
+            "counts": {f"0x{cmd:02X}": n for cmd, n in sorted(self._rx_counts.items())},
+            "last": {
+                f"0x{cmd:02X}": {
+                    "age_s": round(now - at, 1),
+                    "len": len(payload),
+                    "hex": payload[:max_hex_bytes].hex(),
+                }
+                for cmd, (at, payload) in sorted(self._rx_last.items())
+            },
+        }
+
     def _handle_frame(self, cmd_id: int, payload: bytes) -> None:
-        if cmd_id == 0x20 and len(payload) >= 6:
-            # Camera encoding parameters: [stream, codec, width_lo, width_hi, height_lo, height_hi, ...]
-            width = struct.unpack("<H", payload[2:4])[0]
-            height = struct.unpack("<H", payload[4:6])[0]
-            if width > 0 and height > 0:
-                self.state.stream_width = width
-                self.state.stream_height = height
+        if cmd_id == 0x20:
+            encoding = parse_encoding(payload)
+            if encoding and encoding.stream_type == 1 and encoding.width > 0 and encoding.height > 0:
+                self.state.encoding = encoding
+                self.state.stream_width = encoding.width
+                self.state.stream_height = encoding.height
                 self._notify_state_change()
+        elif cmd_id == 0x50:
+            track = parse_track_frame(payload, received_at=time.monotonic())
+            if track is not None:
+                self.state.track = track
+        elif cmd_id == 0x49:
+            info = parse_tf_card(payload)
+            if info is not None:
+                self.state.tf_card = info
+        elif cmd_id == 0x30 and len(payload) >= 1:
+            self.state.utc_set_ok = payload[0] == 1
+        elif cmd_id == 0x40 and len(payload) >= 8:
+            self.state.camera_time = (struct.unpack("<Q", payload[:8])[0], time.monotonic())
+        elif cmd_id == 0x01:
+            versions = parse_firmware_versions(payload)
+            if versions is not None:
+                self.state.firmware = versions
+        elif cmd_id == 0x5F:
+            frame = parse_candidate_frame(payload, received_at=time.monotonic())
+            if frame is not None:
+                recent = tuple(
+                    f for f in self.state.detection_history
+                    if frame.received_at - f.received_at <= DETECTION_HISTORY_S
+                )
+                self.state.detection_history = (*recent[-(DETECTION_HISTORY_MAX - 1):], frame)
+        elif cmd_id == 0x21 and len(payload) >= 2:
+            self.state.encoding_set_ok = payload[1] == 1
+            self._notify_state_change()
+        elif cmd_id == 0x55 and len(payload) >= 2:
+            self.state.ai_mode_result = AI_MODE_RESULT.get(payload[1], f"status {payload[1]}")
+        elif cmd_id == 0x56 and len(payload) >= 1:
+            self.state.ai_select_result = AI_SELECT_RESULT.get(payload[0], f"status {payload[0]}")
+            self.state.ai_select_at = time.monotonic()
         elif cmd_id == 0x0A and len(payload) >= 4:
             self.state.record_sta = payload[3]
             self._notify_state_change()

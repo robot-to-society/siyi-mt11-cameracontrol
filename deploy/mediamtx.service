@@ -1,0 +1,14 @@
+[Unit]
+Description=MediaMTX (MT11 RTSP -> WebRTC relay)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+ExecStart=/usr/local/bin/mediamtx /usr/local/etc/mediamtx.yml
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

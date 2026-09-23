@@ -28,7 +28,7 @@ class RoiConfig(BaseModel):
     mavlink_url: str = Field(default="udpin:127.0.0.1:15555", min_length=1, max_length=256)
     rate_hz: float = Field(default=10.0, gt=0.0, le=50.0)
     yaw_offset_deg: float = Field(default=0.0, ge=-180.0, le=180.0)
-    targets: list[RoiTargetModel] = Field(default_factory=list, max_length=16)
+    targets: list[RoiTargetModel] = Field(default_factory=list, max_length=20)
 
     @field_validator("mavlink_url")
     @classmethod
@@ -49,16 +49,31 @@ class RoiConfig(BaseModel):
         return targets
 
 
-DEFAULT_ROI_CONFIG = RoiConfig(
-    targets=[RoiTargetModel(id=f"roi_{i}", name="", lat=0.0, lon=0.0, alt_msl=0.0) for i in range(1, 5)]
-)
+# Preset slots roi_1..roi_N (joystick button functions use the same ids)
+ROI_SLOT_COUNT = 10
+
+
+def _empty_slot(index: int) -> RoiTargetModel:
+    return RoiTargetModel(id=f"roi_{index}", name="", lat=0.0, lon=0.0, alt_msl=0.0)
+
+
+def with_default_slots(config: RoiConfig) -> RoiConfig:
+    """Append any missing roi_1..roi_N slots (e.g. files saved when there were only 4)."""
+    existing = {t.id for t in config.targets}
+    missing = [_empty_slot(i) for i in range(1, ROI_SLOT_COUNT + 1) if f"roi_{i}" not in existing]
+    if not missing:
+        return config
+    return RoiConfig.model_validate({**config.model_dump(), "targets": [*config.model_dump()["targets"], *[m.model_dump() for m in missing]]})
+
+
+DEFAULT_ROI_CONFIG = RoiConfig(targets=[_empty_slot(i) for i in range(1, ROI_SLOT_COUNT + 1)])
 
 
 def load_roi_config(path: Path) -> RoiConfig:
     if not path.exists():
         return DEFAULT_ROI_CONFIG
     try:
-        return RoiConfig.model_validate(json.loads(path.read_text()))
+        return with_default_slots(RoiConfig.model_validate(json.loads(path.read_text())))
     except (OSError, json.JSONDecodeError, ValidationError) as exc:
         logger.warning("Invalid ROI config %s, using defaults: %s", path, exc)
         return DEFAULT_ROI_CONFIG

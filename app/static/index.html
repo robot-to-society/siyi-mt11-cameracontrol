@@ -24,6 +24,34 @@
       </nav>
 
       <div id="tab-camera">
+        <section id="video-section" class="video-section">
+          <div class="video-head">
+            <span class="video-title">LIVE</span>
+            <span id="video-conn-badge" class="video-badge warn">CONNECTING</span>
+            <span id="video-track-badge" class="video-badge">NO TARGET</span>
+            <span id="video-latency" class="muted video-latency">-</span>
+            <button id="video-pip-btn" class="ghost-btn video-mode-btn" title="ピクチャーインピクチャー">PiP</button>
+            <button id="video-full-btn" class="ghost-btn video-mode-btn" title="全画面（Escで戻る）">Full</button>
+          </div>
+          <div id="video-wrap" class="video-wrap">
+            <video id="video-el" autoplay muted playsinline></video>
+            <canvas id="video-overlay" aria-label="クリックでAIトラッキング対象を指定"></canvas>
+          </div>
+          <div class="video-controls">
+            <label for="video-box-px">Box</label>
+            <input id="video-box-px" type="number" min="32" max="600" step="10" value="100" class="js-num-input" />
+            <span class="muted">px（カメラ映像の画素）</span>
+            <button id="video-cancel-btn" class="ghost-btn">Cancel Tracking</button>
+          </div>
+          <div class="video-roi-bar">
+            <span class="video-title">ROI</span>
+            <div id="video-roi-buttons" class="video-roi-buttons"></div>
+            <button id="video-roi-stop" class="ghost-btn">Stop ROI</button>
+            <span id="video-roi-status" class="muted video-roi-status">OFF</span>
+          </div>
+          <p id="video-msg" class="muted video-msg">クリック：その位置を中心に四角で追跡 ／ Ctrl＋クリック：カメラが検出した人・車を選んで追跡</p>
+        </section>
+
         <section class="ip-section">
           <label for="camera-ip">Camera IP</label>
           <div class="ip-row">
@@ -31,6 +59,15 @@
             <button id="apply-ip" class="ghost-btn">Apply</button>
           </div>
           <p id="connection-text" class="muted">接続状態を確認中...</p>
+          <div class="time-sync-row">
+            <span class="muted">SD card:</span>
+            <span id="tf-card-text" class="muted">取得中...</span>
+          </div>
+          <div class="time-sync-row">
+            <span class="muted">Camera clock (GPS):</span>
+            <span id="time-sync-text" class="muted">-</span>
+            <button id="time-sync-btn" class="ghost-btn">Sync now</button>
+          </div>
         </section>
 
         <section class="controls">
@@ -66,6 +103,19 @@
             <button class="mode-btn" data-mode="thermal" id="mode-thermal-btn">サーマル映像</button>
             <button class="mode-btn" data-mode="side_by_side" id="mode-sbs-btn">サイド・バイ・サイド</button>
           </div>
+        </section>
+
+        <section class="mode-section">
+          <div class="zoom-head">
+            <span>STREAM ENCODING</span>
+            <span id="enc-current" class="muted">取得中...</span>
+          </div>
+          <div class="palette-row">
+            <span class="palette-label">Main</span>
+            <select id="enc-preset" class="palette-select" aria-label="メインストリームのエンコード設定"></select>
+            <button id="enc-apply-btn" class="ghost-btn">Apply</button>
+          </div>
+          <p id="enc-msg" class="muted">メインストリームだけを変更します（録画ストリームは別設定）</p>
         </section>
 
         <section class="mode-section">
@@ -196,7 +246,13 @@
               <tbody id="roi-target-tbody"></tbody>
             </table>
           </div>
-          <p class="muted roi-line">ボタン機能 roi_1〜roi_4 に割り当てると、押すたびに追従開始/停止を切り替えます。</p>
+          <p class="muted roi-line">ボタン機能 roi_1〜roi_10 に割り当てると、押すたびに追従開始/停止を切り替えます。</p>
+          <div class="roi-import-row">
+            <button id="roi-csv-btn" class="ghost-btn">Import CSV</button>
+            <span class="muted">形式: 名前,lat,lon,alt（先頭10行まで、UTF-8 / Shift_JIS）</span>
+            <input id="roi-csv-input" type="file" accept=".csv,text/csv" hidden />
+          </div>
+          <p id="roi-csv-hint" class="muted roi-line"></p>
         </section>
 
         <section class="js-section js-settings-row">
@@ -216,5 +272,9 @@
     </main>
 
     <script src="/static/app.js"></script>
+    <script src="/static/roi_quickbar.js"></script>
+    <script type="module" src="/static/video.js"></script>
+    <script type="module" src="/static/encoding.js"></script>
+    <script type="module" src="/static/roi_import.js"></script>
   </body>
 </html>

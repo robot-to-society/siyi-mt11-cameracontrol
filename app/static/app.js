@@ -83,7 +83,62 @@ function setStatusUI(data) {
   }
 
   updateRoiUI(data.roi, data.vehicle);
+  updateTimeSyncUI(data.time_sync);
+  updateTfCardUI(data.tf_card);
 }
+
+const TF_STATUS_TEXT = {
+  not_inserted: "未挿入",
+  mount_failed: "マウント失敗",
+  low_space: "空き容量不足",
+  read_only: "読み取り専用",
+  read_error: "読み取りエラー",
+};
+const TF_LOW_PERCENT = 10;
+
+function updateTfCardUI(tf) {
+  const el = document.getElementById("tf-card-text");
+  if (!el) return;
+  if (!tf) {
+    el.textContent = "取得中...";
+    el.classList.remove("roi-error");
+    return;
+  }
+  const capacity = tf.total_gb > 0
+    ? `空き ${tf.free_gb.toFixed(2)} / ${tf.total_gb.toFixed(2)} GB（${tf.free_percent}%）${tf.filesystem}`
+    : "";
+  const problem = TF_STATUS_TEXT[tf.status];
+  el.textContent = [problem, capacity].filter(Boolean).join(" / ") || tf.status;
+  const low = tf.free_percent !== null && tf.free_percent < TF_LOW_PERCENT;
+  el.classList.toggle("roi-error", Boolean(problem) || low);
+}
+
+function updateTimeSyncUI(ts) {
+  const el = document.getElementById("time-sync-text");
+  if (!el || !ts) return;
+  const ago = ts.age_s === null ? "" : `（${Math.round(ts.age_s / 60)}分前）`;
+  let text;
+  if (ts.synced && ts.offset_ms !== null) {
+    text = `同期済み ずれ ${ts.offset_ms >= 0 ? "+" : ""}${ts.offset_ms.toFixed(0)} ms${ago}`;
+  } else if (ts.synced) {
+    text = `同期済み${ago}（ずれは未計測）`;
+  } else {
+    text = "未同期";
+  }
+  if (ts.camera_ack === false) text += " / カメラが時刻を拒否";
+  if (ts.error) text += ` / ${ts.error}`;
+  el.textContent = text;
+  el.classList.toggle("roi-error", !ts.synced || ts.camera_ack === false);
+}
+
+document.getElementById("time-sync-btn")?.addEventListener("click", async () => {
+  try {
+    await postJSON("/api/time/sync");
+    setTimeout(refreshStatus, 1500);
+  } catch (e) {
+    connectionText.textContent = `Time sync error: ${e.message}`;
+  }
+});
 
 async function refreshStatus() {
   try {
@@ -220,8 +275,8 @@ tabBtns.forEach((btn) => {
 const AXIS_FUNCTIONS = ["none", "pan", "tilt", "zoom_abs", "zoom_speed", "zoom_step"];
 const BTN_FUNCTIONS = ["none", "shutter", "thermal_toggle", "center_gimbal", "record_toggle",
                        "focus_far", "focus_near", "thermal_gain_toggle", "ai_tracking_toggle",
-                       "gimbal_stop", "zoom_in_step", "zoom_out_step",
-                       "roi_1", "roi_2", "roi_3", "roi_4", "roi_stop"];
+                       "gimbal_stop", "zoom_in_step", "zoom_out_step", "zoom_1x",
+                       ...Array.from({ length: 10 }, (_, i) => `roi_${i + 1}`), "roi_stop"];
 
 let jsConfig = {
   enabled: false,
@@ -538,6 +593,10 @@ function processButtons(buttons) {
 }
 
 function handleButtonPress(fn) {
+  if (/^roi_\d+$/.test(fn)) {
+    toggleRoi(fn);
+    return;
+  }
   switch (fn) {
     case "shutter":
       postJSON("/api/photo").catch(() => {});
@@ -585,11 +644,8 @@ function handleButtonPress(fn) {
     case "zoom_out_step":
       postJSON("/api/zoom/dec").catch(() => {});
       break;
-    case "roi_1":
-    case "roi_2":
-    case "roi_3":
-    case "roi_4":
-      toggleRoi(fn);
+    case "zoom_1x":
+      postJSON("/api/zoom/set", { zoom: 1.0 }).then(() => refreshStatus()).catch(() => {});
       break;
     case "roi_stop":
       stopRoi();
@@ -713,22 +769,28 @@ document.getElementById("palette-apply-btn")?.addEventListener("click", () => {
 
 // ─── AI Tracking ──────────────────────────────────────────────────
 let aiTrackingActive = false;
+function setAiTrackingUI(active) {
+  aiTrackingActive = active;
+  const btn = document.getElementById("ai-tracking-btn");
+  const badge = document.getElementById("ai-tracking-badge");
+  if (btn) {
+    btn.textContent = active ? "Stop Tracking" : "Start Tracking";
+    btn.classList.toggle("active", active);
+  }
+  if (badge) badge.textContent = active ? "ON" : "OFF";
+}
 function toggleAiTracking() {
   const next = !aiTrackingActive;
   postJSON("/api/ai/tracking", { enable: next })
-    .then(() => {
-      aiTrackingActive = next;
-      const btn = document.getElementById("ai-tracking-btn");
-      const badge = document.getElementById("ai-tracking-badge");
-      if (btn) {
-        btn.textContent = aiTrackingActive ? "Stop Tracking" : "Start Tracking";
-        btn.classList.toggle("active", aiTrackingActive);
-      }
-      if (badge) badge.textContent = aiTrackingActive ? "ON" : "OFF";
-    })
-    .catch((e) => { connectionText.textContent = `AI tracking error: ${e}`; });
+    .then(() => setAiTrackingUI(next))
+    .catch((e) => { connectionText.textContent = `AI tracking error: ${e.message}`; });
 }
 document.getElementById("ai-tracking-btn")?.addEventListener("click", toggleAiTracking);
+// Real tracking state from the camera (0x50 via video.js), so click-to-track, Cancel and
+// ROI start keep this button / the joystick toggle in step.
+window.addEventListener("ai-tracking-state", (e) => {
+  if (e.detail.active !== aiTrackingActive) setAiTrackingUI(e.detail.active);
+});
 
 // ─── ROI (GPS target pointing) ────────────────────────────────────
 let roiActiveId = null;
@@ -766,6 +828,7 @@ function updateRoiUI(roi, vehicle) {
   document.querySelectorAll(".roi-go-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.id === roiActiveId);
   });
+  if (typeof updateRoiQuickStatus === "function") updateRoiQuickStatus(roi, vehicle);
 }
 
 function startRoi(id) {
@@ -836,10 +899,20 @@ async function loadRoiConfig() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     roiConfig = await res.json();
     renderRoiTargets();
+    if (typeof renderRoiQuickBar === "function") renderRoiQuickBar(roiConfig.targets);
   } catch (e) {
     document.getElementById("roi-save-hint").textContent = `Load failed: ${e}`;
   }
 }
+
+// Called by roi_import.js (CSV import): replace the table contents; Save persists them.
+async function applyRoiImport(targets) {
+  if (!roiConfig) await loadRoiConfig();
+  if (!roiConfig) throw new Error("ROI config not loaded");
+  roiConfig = { ...roiConfig, targets };
+  renderRoiTargets();
+}
+window.applyRoiImport = applyRoiImport;
 
 function collectRoiConfig() {
   const rows = Array.from(document.querySelectorAll("#roi-target-tbody tr"));
@@ -869,6 +942,7 @@ document.getElementById("roi-save-btn")?.addEventListener("click", async () => {
   try {
     await postJSON("/api/roi/config", next);
     roiConfig = next;
+    if (typeof renderRoiQuickBar === "function") renderRoiQuickBar(next.targets);
     hint.textContent = "Saved";
   } catch (e) {
     hint.textContent = `Save failed: ${e}`;
@@ -879,3 +953,4 @@ document.getElementById("roi-stop-btn")?.addEventListener("click", stopRoi);
 
 // ─── Init ─────────────────────────────────────────────────────────
 loadJsConfig().then(() => gameLoop());
+loadRoiConfig(); // for the ROI quick bar under the live video

@@ -665,3 +665,204 @@ input:focus {
 #roi-mavlink-url {
   width: 100%;
 }
+
+/* ─── Live Video ────────────────────────────────────────────────── */
+.panel {
+  width: min(96vw, 960px);
+}
+
+.video-section {
+  margin-top: 14px;
+}
+
+.video-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.video-title {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+
+.video-latency {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.video-badge {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.video-badge.ok {
+  border-color: #1f5c47;
+  color: var(--ok);
+}
+
+.video-badge.warn {
+  border-color: #6b5520;
+  color: #ffc34d;
+}
+
+.video-badge.bad {
+  border-color: #5d2430;
+  color: var(--accent);
+}
+
+.video-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.video-wrap video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.video-wrap canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  touch-action: manipulation;
+}
+
+.video-wrap canvas.disabled {
+  cursor: not-allowed;
+}
+
+.video-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.video-controls .ghost-btn {
+  margin-left: auto;
+}
+
+.video-msg {
+  margin: 6px 0 0;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.video-msg-error {
+  color: var(--accent);
+}
+
+/* ─── Video: fullscreen / picture-in-picture ────────────────────── */
+.video-mode-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.video-section:fullscreen {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 12px;
+  background: var(--bg-0);
+}
+
+.video-section:fullscreen .video-wrap {
+  flex: 1;
+  min-height: 0;
+  aspect-ratio: auto;
+}
+
+.video-pip-placeholder {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+body.pip-body {
+  display: block;
+  min-height: 0;
+  margin: 0;
+  background: #000;
+}
+
+.video-wrap.in-pip {
+  width: 100vw;
+  height: 100vh;
+  aspect-ratio: auto;
+  border: none;
+  border-radius: 0;
+}
+
+.roi-import-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+/* ─── ROI quick bar (under the live video) ─────────────────────── */
+.video-roi-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.video-roi-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.video-roi-btn {
+  padding: 6px 10px;
+  font-size: 12px;
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-roi-status {
+  margin-left: auto;
+}
+
+.video-roi-status.roi-error {
+  color: var(--accent);
+}
+
+.time-sync-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+}

@@ -13,6 +13,8 @@ from app.camera_protocol import CameraClient
 from app.mavlink_source import MavlinkSource
 from app.roi_config import RoiConfig, load_roi_config, save_roi_config
 from app.roi_controller import RoiController, RoiTarget
+from app.time_sync import TimeSync
+from app.video_routes import cancel_ai_tracking_async, create_video_router
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -49,6 +51,10 @@ roi = RoiController(
     rate_hz=roi_config.rate_hz,
     yaw_offset_deg=roi_config.yaw_offset_deg,
 )
+
+
+# Camera clock follows GPS time from the FC (photo timestamps)
+time_sync = TimeSync(camera, mavlink)
 
 
 def _apply_roi_targets(config: RoiConfig) -> None:
@@ -91,9 +97,6 @@ class ThermalPalettePayload(BaseModel):
     palette: int  # 0-11
 
 
-class AiTrackingPayload(BaseModel):
-    enable: bool
-
 
 class RoiStartPayload(BaseModel):
     target_id: str
@@ -107,8 +110,15 @@ def background_status_loop() -> None:
             camera.request_zoom_level()
             if tick % 10 == 0:
                 camera.request_video_mode()
-            if tick % 30 == 0:
-                camera.request_encoding_params()
+            if tick % 10 == 0:
+                camera.request_tf_card_info()  # 0x49 SD card status / free space
+            if tick % 60 == 0:
+                camera.request_firmware_version()  # 0.0.0 during the camera's ~30 s boot
+            if tick % 30 == 0 or camera.state.stream_width == 0:
+                camera.request_encoding_params()  # every second until the resolution is known
+            if tick % 5 == 0:
+                camera.set_track_stream(True)  # 0x50 push; re-enabled after reconnect/reboot
+                camera.set_candidate_push(True)  # 0x5F detection boxes for Ctrl+click
             tick += 1
         except Exception:  # noqa: BLE001
             try:
@@ -127,6 +137,7 @@ def startup_event() -> None:
     threading.Thread(target=background_status_loop, daemon=True).start()
     mavlink.start()
     roi.start_background()
+    time_sync.start_background()
 
 
 @app.get("/")
@@ -160,7 +171,41 @@ def get_status() -> dict:
         "updated_at": camera.state.updated_at,
         "roi": _roi_status(),
         "vehicle": _vehicle_status(),
+        "time_sync": _time_sync_status(),
+        "tf_card": _tf_card_status(),
     }
+
+
+def _tf_card_status():
+    info = camera.state.tf_card
+    if info is None:
+        return None
+    ratio = info.free_ratio
+    return {
+        "status": info.status,
+        "filesystem": info.filesystem,
+        "total_gb": info.total_gb,
+        "free_gb": info.free_gb,
+        "free_percent": round(ratio * 100, 1) if ratio is not None else None,
+    }
+
+
+def _time_sync_status() -> dict:
+    st = time_sync.status()
+    return {
+        "synced": bool(st.last_sync_ok),
+        "age_s": round(time.monotonic() - st.last_sync_at, 1) if st.last_sync_at is not None else None,
+        "offset_ms": st.offset_ms,
+        "rtt_ms": st.rtt_ms,
+        "error": st.error,
+        "camera_ack": camera.state.utc_set_ok,
+    }
+
+
+@app.post("/api/time/sync")
+def api_time_sync() -> dict:
+    time_sync.request_sync()  # performed by the background loop within ~1 s
+    return {"ok": True}
 
 
 def _roi_status() -> dict:
@@ -347,24 +392,6 @@ def api_thermal_palette(payload: ThermalPalettePayload) -> dict:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@app.post("/api/ai/tracking")
-def api_ai_tracking(payload: AiTrackingPayload) -> dict:
-    try:
-        if payload.enable:
-            camera.set_ai_mode(True)
-            time.sleep(0.1)
-            # Use actual stream resolution; fall back to 1920x1080 if not yet queried
-            w = camera.state.stream_width or 1920
-            h = camera.state.stream_height or 1080
-            cx, cy = w // 2, h // 2
-            camera.ai_select_tracking(1, lx=cx - 100, ly=cy - 100, rx=cx + 100, ry=cy + 100)
-        else:
-            camera.ai_select_tracking(0)
-        return {"ok": True}
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
 @app.get("/api/joystick/config")
 def api_get_joystick_config() -> dict:
     if CONFIG_PATH.exists():
@@ -405,6 +432,7 @@ def api_set_roi_config(payload: RoiConfig) -> dict:
 def api_roi_start(payload: RoiStartPayload) -> dict:
     try:
         roi.start(payload.target_id)
+        cancel_ai_tracking_async(camera)  # camera tracker and ROI must not both drive the gimbal
         return {"ok": True, "target_id": payload.target_id}
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"unknown ROI target: {payload.target_id}") from exc
@@ -419,5 +447,8 @@ def api_roi_stop() -> dict:
     roi.stop()
     return {"ok": True}
 
+
+# Video / AI tracking APIs (lambdas so tests can swap camera/roi)
+app.include_router(create_video_router(lambda: camera, lambda: roi))
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
