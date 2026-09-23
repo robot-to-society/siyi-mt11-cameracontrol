@@ -1,0 +1,35 @@
+{
+  "mavlink_url": "udpin:127.0.0.1:15555",
+  "rate_hz": 10.0,
+  "yaw_offset_deg": 0.0,
+  "targets": [
+    {
+      "id": "roi_1",
+      "name": "",
+      "lat": 0.0,
+      "lon": 0.0,
+      "alt_msl": 0.0
+    },
+    {
+      "id": "roi_2",
+      "name": "",
+      "lat": 0.0,
+      "lon": 0.0,
+      "alt_msl": 0.0
+    },
+    {
+      "id": "roi_3",
+      "name": "",
+      "lat": 0.0,
+      "lon": 0.0,
+      "alt_msl": 0.0
+    },
+    {
+      "id": "roi_4",
+      "name": "",
+      "lat": 0.0,
+      "lon": 0.0,
+      "alt_msl": 0.0
+    }
+  ]
+}

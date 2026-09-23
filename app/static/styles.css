@@ -632,3 +632,36 @@ input:focus {
 .palette-select:focus {
   border-color: #4b617f;
 }
+
+/* ─── ROI Tab ───────────────────────────────────────────────────── */
+.roi-line {
+  margin: 6px 0 0;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.roi-error {
+  color: var(--accent);
+}
+
+.roi-table-wrap {
+  overflow-x: auto;
+}
+
+.roi-table .js-num-input {
+  width: 100%;
+  min-width: 64px;
+}
+
+.roi-table .roi-lat,
+.roi-table .roi-lon {
+  min-width: 110px;
+}
+
+.roi-go-btn {
+  padding: 6px 10px;
+}
+
+#roi-mavlink-url {
+  width: 100%;
+}

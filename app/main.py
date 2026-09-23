@@ -10,11 +10,17 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.camera_protocol import CameraClient
+from app.mavlink_source import MavlinkSource
+from app.roi_config import RoiConfig, load_roi_config, save_roi_config
+from app.roi_controller import RoiController, RoiTarget
 
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 CONFIG_PATH = BASE_DIR / "joystick_config.json"
+ROI_CONFIG_PATH = BASE_DIR / "roi_config.json"
+# Joystick speed below this (|yaw| or |pitch|, -100..100) is treated as stick noise while ROI is active
+ROI_OVERRIDE_MIN_SPEED = 5.0
 
 DEFAULT_CONFIG: dict = {
     "enabled": False,
@@ -35,6 +41,21 @@ DEFAULT_CONFIG: dict = {
 
 app = FastAPI(title="MT11 Camera Control UI")
 camera = CameraClient(host="192.168.144.25", port=37260)
+roi_config = load_roi_config(ROI_CONFIG_PATH)
+mavlink = MavlinkSource(url=roi_config.mavlink_url)
+roi = RoiController(
+    camera,
+    mavlink,
+    rate_hz=roi_config.rate_hz,
+    yaw_offset_deg=roi_config.yaw_offset_deg,
+)
+
+
+def _apply_roi_targets(config: RoiConfig) -> None:
+    roi.set_targets(RoiTarget(**t.model_dump()) for t in config.targets)
+
+
+_apply_roi_targets(roi_config)
 
 
 class CameraIpPayload(BaseModel):
@@ -74,6 +95,10 @@ class AiTrackingPayload(BaseModel):
     enable: bool
 
 
+class RoiStartPayload(BaseModel):
+    target_id: str
+
+
 def background_status_loop() -> None:
     tick = 0
     while True:
@@ -100,6 +125,8 @@ def startup_event() -> None:
     except Exception:  # noqa: BLE001
         pass
     threading.Thread(target=background_status_loop, daemon=True).start()
+    mavlink.start()
+    roi.start_background()
 
 
 @app.get("/")
@@ -131,6 +158,37 @@ def get_status() -> dict:
         "last_feedback": camera.state.last_feedback,
         "last_error": camera.state.last_error,
         "updated_at": camera.state.updated_at,
+        "roi": _roi_status(),
+        "vehicle": _vehicle_status(),
+    }
+
+
+def _roi_status() -> dict:
+    status = roi.status()
+    return {
+        "active_target_id": status.active_target_id,
+        "bearing_deg": status.bearing_deg,
+        "elevation_deg": status.elevation_deg,
+        "distance_m": status.distance_m,
+        "yaw_cmd_deg": status.yaw_cmd_deg,
+        "pitch_cmd_deg": status.pitch_cmd_deg,
+        "last_error": status.last_error,
+    }
+
+
+def _vehicle_status() -> dict:
+    state = mavlink.latest()
+    base = {"mavlink_connected": mavlink.connected, "mavlink_error": mavlink.last_error}
+    if state is None:
+        return {**base, "has_position": False}
+    return {
+        **base,
+        "has_position": True,
+        "lat": state.lat,
+        "lon": state.lon,
+        "alt_msl": state.alt_msl,
+        "heading_deg": state.heading_deg,
+        "age_s": round(time.monotonic() - state.received_at, 2),
     }
 
 
@@ -231,6 +289,11 @@ def set_video_mode(payload: VideoModePayload) -> dict:
 @app.post("/api/gimbal/speed")
 def api_gimbal_speed(payload: GimbalSpeedPayload) -> dict:
     try:
+        if roi.status().active_target_id is not None:
+            magnitude = max(abs(payload.yaw), abs(payload.pitch))
+            if 0 < magnitude < ROI_OVERRIDE_MIN_SPEED:
+                return {"ok": True, "ignored": "roi_active"}
+            roi.stop()  # deliberate manual input (or explicit 0/0 stop) overrides ROI
         camera.set_gimbal_speed(payload.yaw, payload.pitch)
         return {"ok": True}
     except Exception as exc:  # noqa: BLE001
@@ -240,6 +303,7 @@ def api_gimbal_speed(payload: GimbalSpeedPayload) -> dict:
 @app.post("/api/gimbal/center")
 def api_gimbal_center() -> dict:
     try:
+        roi.stop()
         camera.center_gimbal()
         return {"ok": True}
     except Exception as exc:  # noqa: BLE001
@@ -313,6 +377,46 @@ def api_set_joystick_config(payload: dict = Body(...)) -> dict:
     tmp = CONFIG_PATH.with_name(CONFIG_PATH.name + ".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
     os.replace(tmp, CONFIG_PATH)
+    return {"ok": True}
+
+
+@app.get("/api/roi/config")
+def api_get_roi_config() -> dict:
+    return roi_config.model_dump()
+
+
+@app.post("/api/roi/config")
+def api_set_roi_config(payload: RoiConfig) -> dict:
+    global roi_config
+    try:
+        save_roi_config(ROI_CONFIG_PATH, payload)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"failed to save ROI config: {exc}") from exc
+    previous_url = roi_config.mavlink_url
+    roi_config = payload
+    roi.configure(rate_hz=payload.rate_hz, yaw_offset_deg=payload.yaw_offset_deg)
+    _apply_roi_targets(payload)
+    if payload.mavlink_url != previous_url:
+        mavlink.restart(payload.mavlink_url)
+    return {"ok": True}
+
+
+@app.post("/api/roi/start")
+def api_roi_start(payload: RoiStartPayload) -> dict:
+    try:
+        roi.start(payload.target_id)
+        return {"ok": True, "target_id": payload.target_id}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"unknown ROI target: {payload.target_id}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/roi/stop")
+def api_roi_stop() -> dict:
+    roi.stop()
     return {"ok": True}
 
 

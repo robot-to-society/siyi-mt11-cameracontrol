@@ -20,6 +20,7 @@
       <nav class="tab-bar">
         <button class="tab-btn active" data-tab="camera">Camera</button>
         <button class="tab-btn" data-tab="joystick">Joystick</button>
+        <button class="tab-btn" data-tab="roi">ROI</button>
       </nav>
 
       <div id="tab-camera">
@@ -171,6 +172,46 @@
 
         <button id="js-save-btn" class="js-save-btn">Save Config</button>
         <button id="js-center-btn" class="ghost-btn js-center-btn">Center Gimbal</button>
+      </div>
+
+      <div id="tab-roi" class="hidden">
+        <section class="js-section">
+          <div class="js-section-head">ROI STATUS</div>
+          <p class="muted js-status-text">
+            <span id="roi-badge" class="js-badge not-found">OFF</span>
+            <span id="roi-status-text">-</span>
+          </p>
+          <p class="muted roi-line">Vehicle: <span id="roi-vehicle-text">-</span></p>
+          <p class="muted roi-line roi-error" id="roi-error-text"></p>
+          <button id="roi-stop-btn" class="ghost-btn js-center-btn">Stop ROI</button>
+        </section>
+
+        <section class="js-section">
+          <div class="js-section-head">TARGETS (WGS84 / 海抜高度 m)</div>
+          <div class="roi-table-wrap">
+            <table class="js-map-table roi-table">
+              <thead>
+                <tr><th>ID</th><th>Name</th><th>Lat</th><th>Lon</th><th>Alt</th><th></th></tr>
+              </thead>
+              <tbody id="roi-target-tbody"></tbody>
+            </table>
+          </div>
+          <p class="muted roi-line">ボタン機能 roi_1〜roi_4 に割り当てると、押すたびに追従開始/停止を切り替えます。</p>
+        </section>
+
+        <section class="js-section js-settings-row">
+          <div class="js-setting-pair">
+            <label for="roi-mavlink-url">MAVLink URL</label>
+            <input id="roi-mavlink-url" type="text" class="js-num-input" />
+          </div>
+          <div class="js-setting-pair">
+            <label for="roi-yaw-offset">Yaw Offset (°, + = 左)</label>
+            <input id="roi-yaw-offset" type="number" step="0.1" min="-180" max="180" class="js-num-input" />
+          </div>
+        </section>
+
+        <button id="roi-save-btn" class="js-save-btn">Save ROI Config</button>
+        <p id="roi-save-hint" class="muted roi-line"></p>
       </div>
     </main>
 
