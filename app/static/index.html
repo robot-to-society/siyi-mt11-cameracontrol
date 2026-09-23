@@ -24,6 +24,26 @@
       </nav>
 
       <div id="tab-camera">
+        <section class="video-section">
+          <div class="video-head">
+            <span class="video-title">LIVE</span>
+            <span id="video-conn-badge" class="video-badge warn">CONNECTING</span>
+            <span id="video-track-badge" class="video-badge">NO TARGET</span>
+            <span id="video-latency" class="muted video-latency">-</span>
+          </div>
+          <div id="video-wrap" class="video-wrap">
+            <video id="video-el" autoplay muted playsinline></video>
+            <canvas id="video-overlay" aria-label="クリックでAIトラッキング対象を指定"></canvas>
+          </div>
+          <div class="video-controls">
+            <label for="video-box-px">Box</label>
+            <input id="video-box-px" type="number" min="32" max="600" step="10" value="150" class="js-num-input" />
+            <span class="muted">px（カメラ映像の画素）</span>
+            <button id="video-cancel-btn" class="ghost-btn">Cancel Tracking</button>
+          </div>
+          <p id="video-msg" class="muted video-msg">映像をクリックすると、その位置を中心にAIトラッキングを開始します</p>
+        </section>
+
         <section class="ip-section">
           <label for="camera-ip">Camera IP</label>
           <div class="ip-row">
@@ -66,6 +86,19 @@
             <button class="mode-btn" data-mode="thermal" id="mode-thermal-btn">サーマル映像</button>
             <button class="mode-btn" data-mode="side_by_side" id="mode-sbs-btn">サイド・バイ・サイド</button>
           </div>
+        </section>
+
+        <section class="mode-section">
+          <div class="zoom-head">
+            <span>STREAM ENCODING</span>
+            <span id="enc-current" class="muted">取得中...</span>
+          </div>
+          <div class="palette-row">
+            <span class="palette-label">Main</span>
+            <select id="enc-preset" class="palette-select" aria-label="メインストリームのエンコード設定"></select>
+            <button id="enc-apply-btn" class="ghost-btn">Apply</button>
+          </div>
+          <p id="enc-msg" class="muted">メインストリームだけを変更します（録画ストリームは別設定）</p>
         </section>
 
         <section class="mode-section">
@@ -216,5 +249,7 @@
     </main>
 
     <script src="/static/app.js"></script>
+    <script type="module" src="/static/video.js"></script>
+    <script type="module" src="/static/encoding.js"></script>
   </body>
 </html>

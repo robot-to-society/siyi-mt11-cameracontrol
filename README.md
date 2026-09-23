@@ -12,6 +12,8 @@ UniPod MT11 向けのシンプルなダークUIです。
 - 現在の撮影状態表示
 - カメラIP変更（デフォルト: `192.168.144.25`）
 - GPS ROI：登録した座標へカメラを向け続ける（ジョイスティックのボタンに割当可）
+- ライブ映像表示（RTSP → WebRTC）と、映像クリックでの AI トラッキング開始・追跡枠の表示
+- メインストリームのエンコード切替（H.264 / H.265、720p〜4K）
 
 ## Setup
 
@@ -107,9 +109,52 @@ python -m scripts.fake_vehicle --lat 35.xxxxxxx --lon 139.xxxxxxx --alt 40 --hea
 - 目標が真後ろ付近（±180°）の場合、機首方位のブレで一周しないよう ±190° までは同じ側を維持します。
 - `mavlink_url` に指定できるのは `udpin|udpout|udp|tcp:<host>:<port>` か `/dev/tty*[,baud]` だけです（`tcpin` は不可）。
 
+## ライブ映像とクリックでのAIトラッキング
+
+```
+MT11 --RTSP video1--> MediaMTX（ラズパイ、再エンコードなし）--WebRTC--> ブラウザ
+ブラウザ --WHEP（/api/video/whep、本アプリが中継）--> MediaMTX 127.0.0.1:8889
+```
+
+ブラウザから届く必要があるのは、本アプリの 8000（HTTP）と、映像用の 8189（UDP、通らなければ TCP）です。
+
+### MediaMTX の導入（ラズパイ）
+
+1. [MediaMTX のリリース](https://github.com/bluenviron/mediamtx/releases)から `linux_arm64` 版を取得し、`/usr/local/bin/mediamtx` に置きます（32bit OS の場合は `linux_armv7`）。
+2. 設定ファイルとサービスを配置して起動します。
+
+```bash
+sudo cp deploy/mediamtx.yml /usr/local/etc/mediamtx.yml
+sudo cp deploy/mediamtx.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now mediamtx
+journalctl -u mediamtx -f
+```
+
+- 事前に `ss -lntup | grep -E ':8889|:8189'` で、ポートが使われていないことを確認してください。
+- MediaMTX が設定項目名でエラーを出した場合は、そのバージョンの `mediamtx.yml` の書式に合わせてください。
+- 映像用の 8189 は全インターフェースで待ち受けます。ラズパイがグローバル IP を持つ回線に直接つながる場合は、ファイアウォールで LAN と VPN からの接続だけを許可してください。
+- SoftEther VPN 越しに映像がつながらない場合は、`webrtcAdditionalHosts` にラズパイの VPN 側の IP を追加して `sudo systemctl restart mediamtx` を実行します。
+
+### 使い方
+
+- **Camera タブの LIVE**：映像をクリックすると、その位置を中心に **Box（既定 150px、カメラ映像の画素基準）** の四角で AI トラッキングを開始します。
+  - マウスを乗せると、指定される範囲が点線で表示されます。
+  - 追跡中は、追跡枠が色付きで表示されます（緑：追跡中、黄：一時的に見失い、赤：見失い）。
+- LTE 越しでは映像が遅れるため、ドラッグではなくクリックで指定する方式にしています。右上に受信側の遅延の目安を表示します（カメラ側のエンコードや RTSP の遅延は含みません）。
+- AI トラッキングを開始できるのは RGB モードのときだけです。
+  - 従来の「Start Tracking」ボタンとジョイスティックの `ai_tracking_toggle` も同じ制限になりました（中央 200px で開始）。サーマル／2画面表示のときや、起動直後で解像度が未取得のときはエラーになります。
+- エンコードを切り替えた直後は、新しい解像度を取得するまで（通常 1〜2 秒）クリックで追跡を開始できません。
+- AI トラッキングを開始すると ROI は停止し、ROI を開始すると AI トラッキングは解除されます。
+- **STREAM ENCODING**：メインストリームの符号化方式と解像度を切り替えます（録画ストリームは別設定）。
+  - Chrome（M136 以降）は、PC の GPU が H.265 のハードウェア再生に対応していれば WebRTC で H.265 を再生できます。同じ画質なら帯域が少なく済むので、LTE 越しでは H.265 が有利です（MediaMTX は最新版を使ってください）。
+  - Firefox や、GPU が H.265 に対応していない PC では映像が出ません。その場合は H.264 にしてください。
+  - LTE で映像が止まりがちなら 720p にします（ビットレートは SDK で変更できないため、解像度で下げます）。
+
 ## Tests
 
 ```bash
 pip install -r requirements-dev.txt
 pytest
+node --test tests/js/*.test.mjs
 ```

@@ -5,6 +5,19 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from app.ai_tracking import (
+    AI_MODE_RESULT,
+    AI_SELECT_RESULT,
+    EncodingParams,
+    EncodingPreset,
+    StreamBox,
+    TrackTarget,
+    encode_ai_select,
+    encode_encoding_params,
+    parse_encoding,
+    parse_track_frame,
+)
+
 
 def crc16_ccitt(data: bytes, init_crc: int = 0x0000) -> int:
     crc = init_crc & 0xFFFF
@@ -51,6 +64,12 @@ class CameraState:
     last_error: Optional[str] = None
     connected: bool = False
     updated_at: float = 0.0
+    encoding: Optional[EncodingParams] = None  # main stream (0x20)
+    encoding_set_ok: Optional[bool] = None  # last 0x21 ACK
+    ai_mode_result: Optional[str] = None  # last 0x55 ACK
+    ai_select_result: Optional[str] = None  # last 0x56 ACK
+    ai_select_at: float = 0.0
+    track: Optional[TrackTarget] = None  # last 0x50 frame
 
 
 class CameraClient:
@@ -275,13 +294,27 @@ class CameraClient:
         """CMD 0x55: Enable/Disable AI Tracking Mode (TCP)"""
         self.send_cmd(cmd_id=0x55, data=struct.pack("<B", 1 if enable else 0), ctrl=0x01)
 
-    def ai_select_tracking(self, action: int, lx: int = 0, ly: int = 0, rx: int = 0, ry: int = 0) -> None:
-        """CMD 0x56: AI Select Tracking Target (TCP)
-        action: 1=Track, 0=Cancel
-        lx,ly: top-left coord; rx,ry: bottom-right coord (1280x720 stream)
-        """
-        payload = struct.pack("<BHHHH", action, lx, ly, rx, ry)
-        self.send_cmd(cmd_id=0x56, data=payload, ctrl=0x01)
+    def ai_select_box(self, box: StreamBox) -> None:
+        """CMD 0x56: AI Select Tracking Target, box selection in main-stream pixels (TCP)"""
+        self.send_cmd(cmd_id=0x56, data=encode_ai_select(box), ctrl=0x01)
+
+    def ai_cancel_tracking(self) -> None:
+        """CMD 0x56: Cancel tracking (TCP)"""
+        self.send_cmd(cmd_id=0x56, data=encode_ai_select(None), ctrl=0x01)
+
+    def set_track_stream(self, enable: bool) -> None:
+        """CMD 0x51: enable/disable 0x50 tracking box push to this connection (TCP)"""
+        self.send_cmd(cmd_id=0x51, data=b"\x01" if enable else b"\x00", ctrl=0x01)
+
+    def set_encoding_params(self, preset: EncodingPreset) -> None:
+        """CMD 0x21: Set main stream encoding (TCP). Recording stream is separate.
+        The known resolution is cleared so click-to-track waits for a fresh 0x20
+        instead of mapping clicks onto the old resolution."""
+        self.state.stream_width = 0
+        self.state.stream_height = 0
+        self.state.encoding = None
+        self.state.encoding_set_ok = None
+        self.send_cmd(cmd_id=0x21, data=encode_encoding_params(preset), ctrl=0x01)
 
     def _heartbeat_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -350,14 +383,25 @@ class CameraClient:
             self._handle_frame(cmd_id, payload)
 
     def _handle_frame(self, cmd_id: int, payload: bytes) -> None:
-        if cmd_id == 0x20 and len(payload) >= 6:
-            # Camera encoding parameters: [stream, codec, width_lo, width_hi, height_lo, height_hi, ...]
-            width = struct.unpack("<H", payload[2:4])[0]
-            height = struct.unpack("<H", payload[4:6])[0]
-            if width > 0 and height > 0:
-                self.state.stream_width = width
-                self.state.stream_height = height
+        if cmd_id == 0x20:
+            encoding = parse_encoding(payload)
+            if encoding and encoding.stream_type == 1 and encoding.width > 0 and encoding.height > 0:
+                self.state.encoding = encoding
+                self.state.stream_width = encoding.width
+                self.state.stream_height = encoding.height
                 self._notify_state_change()
+        elif cmd_id == 0x50:
+            track = parse_track_frame(payload, received_at=time.monotonic())
+            if track is not None:
+                self.state.track = track
+        elif cmd_id == 0x21 and len(payload) >= 2:
+            self.state.encoding_set_ok = payload[1] == 1
+            self._notify_state_change()
+        elif cmd_id == 0x55 and len(payload) >= 2:
+            self.state.ai_mode_result = AI_MODE_RESULT.get(payload[1], f"status {payload[1]}")
+        elif cmd_id == 0x56 and len(payload) >= 1:
+            self.state.ai_select_result = AI_SELECT_RESULT.get(payload[0], f"status {payload[0]}")
+            self.state.ai_select_at = time.monotonic()
         elif cmd_id == 0x0A and len(payload) >= 4:
             self.state.record_sta = payload[3]
             self._notify_state_change()

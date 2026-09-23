@@ -1,0 +1,33 @@
+# MediaMTX: MT11 RTSP -> WebRTC (WHEP) relay for the camera control UI.
+# Copy to /usr/local/etc/mediamtx.yml. No transcoding: the camera's H.264 is passed through.
+
+logLevel: info
+
+# Only WebRTC is needed. Other servers are disabled to avoid port clashes
+# (e.g. Rpanion-server may already use RTSP 8554).
+rtsp: no
+rtmp: no
+hls: no
+srt: no
+api: no
+metrics: no
+pprof: no
+playback: no
+
+webrtc: yes
+# Signalling (WHEP) is proxied by the app (/api/video/whep), so bind locally only.
+webrtcAddress: 127.0.0.1:8889
+# Media (ICE). The browser must reach this port on the Pi (LAN or SoftEther VPN).
+webrtcLocalUDPAddress: :8189
+# Fallback when UDP does not pass the VPN/LTE path.
+webrtcLocalTCPAddress: :8189
+webrtcIPsFromInterfaces: yes
+# Add the Pi's SoftEther VPN address here if the browser cannot connect over VPN, e.g. [192.168.30.10]
+webrtcAdditionalHosts: []
+
+paths:
+  mt11:
+    source: rtsp://192.168.144.25:8554/video1
+    rtspTransport: tcp
+    # Connect to the camera only while someone is watching
+    sourceOnDemand: yes

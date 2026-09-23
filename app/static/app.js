@@ -713,22 +713,28 @@ document.getElementById("palette-apply-btn")?.addEventListener("click", () => {
 
 // ─── AI Tracking ──────────────────────────────────────────────────
 let aiTrackingActive = false;
+function setAiTrackingUI(active) {
+  aiTrackingActive = active;
+  const btn = document.getElementById("ai-tracking-btn");
+  const badge = document.getElementById("ai-tracking-badge");
+  if (btn) {
+    btn.textContent = active ? "Stop Tracking" : "Start Tracking";
+    btn.classList.toggle("active", active);
+  }
+  if (badge) badge.textContent = active ? "ON" : "OFF";
+}
 function toggleAiTracking() {
   const next = !aiTrackingActive;
   postJSON("/api/ai/tracking", { enable: next })
-    .then(() => {
-      aiTrackingActive = next;
-      const btn = document.getElementById("ai-tracking-btn");
-      const badge = document.getElementById("ai-tracking-badge");
-      if (btn) {
-        btn.textContent = aiTrackingActive ? "Stop Tracking" : "Start Tracking";
-        btn.classList.toggle("active", aiTrackingActive);
-      }
-      if (badge) badge.textContent = aiTrackingActive ? "ON" : "OFF";
-    })
-    .catch((e) => { connectionText.textContent = `AI tracking error: ${e}`; });
+    .then(() => setAiTrackingUI(next))
+    .catch((e) => { connectionText.textContent = `AI tracking error: ${e.message}`; });
 }
 document.getElementById("ai-tracking-btn")?.addEventListener("click", toggleAiTracking);
+// Real tracking state from the camera (0x50 via video.js), so click-to-track, Cancel and
+// ROI start keep this button / the joystick toggle in step.
+window.addEventListener("ai-tracking-state", (e) => {
+  if (e.detail.active !== aiTrackingActive) setAiTrackingUI(e.detail.active);
+});
 
 // ─── ROI (GPS target pointing) ────────────────────────────────────
 let roiActiveId = null;
