@@ -90,6 +90,8 @@ class CameraState:
     track: Optional[TrackTarget] = None  # last 0x50 frame
     detection_history: tuple[DetectionFrame, ...] = ()  # recent 0x5F frames (oldest first)
     firmware: Optional[dict] = None  # 0x01 (camera/gimbal/zoom versions)
+    utc_set_ok: Optional[bool] = None  # last 0x30 ACK
+    camera_time: Optional[tuple[int, float]] = None  # last 0x40: (camera unix us, monotonic received)
 
 
 class CameraClient:
@@ -185,6 +187,14 @@ class CameraClient:
     def request_firmware_version(self) -> None:
         """CMD 0x01: Request Firmware Version (TCP)"""
         self.send_cmd(cmd_id=0x01, data=b"", ctrl=0x01)
+
+    def set_utc_time(self, unix_us: int) -> None:
+        """CMD 0x30: Set UTC Time, UNIX epoch microseconds (TCP)"""
+        self.send_cmd(cmd_id=0x30, data=struct.pack("<Q", unix_us), ctrl=0x01)
+
+    def request_system_time(self) -> None:
+        """CMD 0x40: Request System Time (TCP)"""
+        self.send_cmd(cmd_id=0x40, data=b"", ctrl=0x01)
 
     def request_status(self) -> None:
         self.send_cmd(cmd_id=0x0A, data=b"", ctrl=0x01)
@@ -446,6 +456,10 @@ class CameraClient:
             track = parse_track_frame(payload, received_at=time.monotonic())
             if track is not None:
                 self.state.track = track
+        elif cmd_id == 0x30 and len(payload) >= 1:
+            self.state.utc_set_ok = payload[0] == 1
+        elif cmd_id == 0x40 and len(payload) >= 8:
+            self.state.camera_time = (struct.unpack("<Q", payload[:8])[0], time.monotonic())
         elif cmd_id == 0x01:
             versions = parse_firmware_versions(payload)
             if versions is not None:

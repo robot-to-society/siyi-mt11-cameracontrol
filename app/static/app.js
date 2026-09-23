@@ -83,7 +83,35 @@ function setStatusUI(data) {
   }
 
   updateRoiUI(data.roi, data.vehicle);
+  updateTimeSyncUI(data.time_sync);
 }
+
+function updateTimeSyncUI(ts) {
+  const el = document.getElementById("time-sync-text");
+  if (!el || !ts) return;
+  const ago = ts.age_s === null ? "" : `（${Math.round(ts.age_s / 60)}分前）`;
+  let text;
+  if (ts.synced && ts.offset_ms !== null) {
+    text = `同期済み ずれ ${ts.offset_ms >= 0 ? "+" : ""}${ts.offset_ms.toFixed(0)} ms${ago}`;
+  } else if (ts.synced) {
+    text = `同期済み${ago}（ずれは未計測）`;
+  } else {
+    text = "未同期";
+  }
+  if (ts.camera_ack === false) text += " / カメラが時刻を拒否";
+  if (ts.error) text += ` / ${ts.error}`;
+  el.textContent = text;
+  el.classList.toggle("roi-error", !ts.synced || ts.camera_ack === false);
+}
+
+document.getElementById("time-sync-btn")?.addEventListener("click", async () => {
+  try {
+    await postJSON("/api/time/sync");
+    setTimeout(refreshStatus, 1500);
+  } catch (e) {
+    connectionText.textContent = `Time sync error: ${e.message}`;
+  }
+});
 
 async function refreshStatus() {
   try {

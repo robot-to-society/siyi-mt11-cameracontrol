@@ -857,3 +857,12 @@ body.pip-body {
 .video-roi-status.roi-error {
   color: var(--accent);
 }
+
+.time-sync-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+}

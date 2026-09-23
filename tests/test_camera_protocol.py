@@ -206,3 +206,26 @@ class TestFirmware:
         assert client.sent == [("tcp", 0x01, b"")]
         client._handle_frame(0x01, bytes([1, 0, 1, 0x89, 0x0A, 1, 0, 0x8A, 0, 0, 0, 0]))
         assert client.state.firmware["gimbal"] == "v0.1.10"
+
+
+class TestTimeCommands:
+    def test_set_utc_time_and_request(self):
+        client = RecordingClient()
+        client.set_utc_time(1_790_000_000_123_456)
+        client.request_system_time()
+        assert client.sent == [
+            ("tcp", 0x30, struct.pack("<Q", 1_790_000_000_123_456)),
+            ("tcp", 0x40, b""),
+        ]
+
+    def test_acks(self, monkeypatch):
+        import app.camera_protocol as cp
+
+        monkeypatch.setattr(cp.time, "monotonic", lambda: 7.5)
+        client = CameraClient()
+        client._handle_frame(0x30, b"\x01")
+        assert client.state.utc_set_ok is True
+        client._handle_frame(0x30, b"\x00")
+        assert client.state.utc_set_ok is False
+        client._handle_frame(0x40, struct.pack("<QI", 1_790_000_000_000_000, 5000))
+        assert client.state.camera_time == (1_790_000_000_000_000, 7.5)

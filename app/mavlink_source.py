@@ -9,12 +9,19 @@ from typing import Any, Callable, Optional
 logger = logging.getLogger(__name__)
 
 MSG_ID_GLOBAL_POSITION_INT = 33
+MSG_ID_SYSTEM_TIME = 2
 MAV_CMD_SET_MESSAGE_INTERVAL = 511
 MAV_AUTOPILOT_INVALID = 8
 HDG_UNKNOWN = 65535
 
 POSITION_INTERVAL_US = 100_000  # 10 Hz
+SYSTEM_TIME_INTERVAL_US = 1_000_000  # 1 Hz
+# SYSTEM_TIME before GPS time is known is boot time / 0; anything before 2020 is not GPS time
+MIN_VALID_UNIX_US = 1_577_836_800_000_000
 REQUEST_RETRY_S = 5.0
+# After the FC's first heartbeat, wait this long before asking for streams. If GLOBAL_POSITION_INT /
+# SYSTEM_TIME already flow (e.g. requested by Mission Planner) the FC's settings are never touched.
+REQUEST_GRACE_S = 10.0
 STALE_REQUEST_S = 3.0
 
 
@@ -25,6 +32,19 @@ class VehicleState:
     alt_msl: float
     heading_deg: Optional[float]
     received_at: float  # monotonic seconds
+
+
+@dataclass(frozen=True)
+class TimeSample:
+    unix_us: int  # UTC from the FC (GPS time)
+    received_at: float  # monotonic seconds when received on the Pi
+
+
+def time_sample_from_system_time(msg: Any, received_at: float) -> Optional[TimeSample]:
+    """SYSTEM_TIME -> TimeSample, or None while the FC has no GPS time."""
+    if msg.time_unix_usec < MIN_VALID_UNIX_US:
+        return None
+    return TimeSample(unix_us=int(msg.time_unix_usec), received_at=received_at)
 
 
 def vehicle_state_from_global_position(msg: Any, received_at: float) -> Optional[VehicleState]:
@@ -60,12 +80,14 @@ class MavlinkSource:
         self._connect = connect
         self._join_timeout_s = join_timeout_s
         self._state: Optional[VehicleState] = None
+        self._time: Optional[TimeSample] = None
         self._connected = False
         self._last_error: Optional[str] = None
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._target: Optional[tuple[int, int]] = None
-        self._last_request = -1e9
+        self._last_request: dict[int, float] = {}
+        self._first_heartbeat_at: Optional[float] = None
 
     @property
     def url(self) -> str:
@@ -81,6 +103,9 @@ class MavlinkSource:
 
     def latest(self) -> Optional[VehicleState]:
         return self._state
+
+    def latest_time(self) -> Optional[TimeSample]:
+        return self._time
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -102,7 +127,9 @@ class MavlinkSource:
         self.stop()
         self._url = url
         self._state = None
+        self._time = None
         self._target = None
+        self._first_heartbeat_at = None
         self.start()
 
     def _run(self, stop_event: Optional[threading.Event] = None, url: Optional[str] = None) -> None:
@@ -134,12 +161,21 @@ class MavlinkSource:
 
     def _receive_loop(self, conn: Any, stop_event: threading.Event) -> None:
         while not stop_event.is_set():
-            msg = conn.recv_match(type=["HEARTBEAT", "GLOBAL_POSITION_INT"], blocking=True, timeout=1.0)
+            msg = conn.recv_match(
+                type=["HEARTBEAT", "GLOBAL_POSITION_INT", "SYSTEM_TIME"], blocking=True, timeout=1.0
+            )
             if msg is None:
                 continue
-            if msg.get_type() == "HEARTBEAT":
+            msg_type = msg.get_type()
+            if msg_type == "HEARTBEAT":
                 self._on_heartbeat(conn, msg)
-            elif self._target is None or msg.get_srcSystem() == self._target[0]:
+            elif self._target is not None and msg.get_srcSystem() != self._target[0]:
+                continue  # another system on the link
+            elif msg_type == "SYSTEM_TIME":
+                sample = time_sample_from_system_time(msg, self._clock())
+                if sample is not None and not stop_event.is_set():
+                    self._time = sample
+            else:
                 state = vehicle_state_from_global_position(msg, self._clock())
                 if state is not None and not stop_event.is_set():
                     self._state = state
@@ -149,20 +185,27 @@ class MavlinkSource:
             return  # GCS / companion, not the flight controller
         self._target = (msg.get_srcSystem(), msg.get_srcComponent())
         now = self._clock()
-        state = self._state
-        is_stale = state is None or now - state.received_at > STALE_REQUEST_S
-        if is_stale and now - self._last_request >= REQUEST_RETRY_S:
-            self._request_position_stream(conn)
-            self._last_request = now
+        if self._first_heartbeat_at is None:
+            self._first_heartbeat_at = now
+        if now - self._first_heartbeat_at < REQUEST_GRACE_S:
+            return
+        for msg_id, interval_us, latest in (
+            (MSG_ID_GLOBAL_POSITION_INT, POSITION_INTERVAL_US, self._state),
+            (MSG_ID_SYSTEM_TIME, SYSTEM_TIME_INTERVAL_US, self._time),
+        ):
+            is_stale = latest is None or now - latest.received_at > STALE_REQUEST_S
+            if is_stale and now - self._last_request.get(msg_id, -1e9) >= REQUEST_RETRY_S:
+                self._request_interval(conn, msg_id, interval_us)
+                self._last_request = {**self._last_request, msg_id: now}
 
-    def _request_position_stream(self, conn: Any) -> None:
+    def _request_interval(self, conn: Any, msg_id: int, interval_us: int) -> None:
         target_system, target_component = self._target
         conn.mav.command_long_send(
             target_system,
             target_component,
             MAV_CMD_SET_MESSAGE_INTERVAL,
             0,
-            MSG_ID_GLOBAL_POSITION_INT,
-            POSITION_INTERVAL_US,
+            msg_id,
+            interval_us,
             0, 0, 0, 0, 0,
         )

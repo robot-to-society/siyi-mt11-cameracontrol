@@ -65,7 +65,7 @@ FC --serial--> Raspberry Pi [Rpanion-server] --UDP 127.0.0.1:15555--> 本アプ�
 Rpanion の **Flight Controller → Telemetry Destinations** に `127.0.0.1:15555` を追加します（設定済み）。
 本アプリはこのポートで待ち受けます（`udpin:127.0.0.1:15555`、ROI タブの MAVLink URL で変更可）。
 
-本アプリは FC の HEARTBEAT を受信すると `MAV_CMD_SET_MESSAGE_INTERVAL` で `GLOBAL_POSITION_INT` を 10Hz 要求します。
+本アプリは FC の最初の HEARTBEAT から 10 秒待ち、それでも `GLOBAL_POSITION_INT`（位置）や `SYSTEM_TIME`（GPS 時刻）が届いていない場合だけ、`MAV_CMD_SET_MESSAGE_INTERVAL` でそれぞれ 10Hz / 1Hz を要求します。すでに流れていれば（Mission Planner が要求している場合など）FC の設定には触れません。この要求は Rpanion が接続しているシリアルポートにだけ効き、FC を再起動すると元に戻ります。
 
 ### 使い方
 
@@ -160,6 +160,15 @@ journalctl -u mediamtx -f
   - Chrome（M136 以降）は、PC の GPU が H.265 のハードウェア再生に対応していれば WebRTC で H.265 を再生できます。同じ画質なら帯域が少なく済むので、LTE 越しでは H.265 が有利です（MediaMTX は最新版を使ってください）。
   - Firefox や、GPU が H.265 に対応していない PC では映像が出ません。その場合は H.264 にしてください。
   - LTE で映像が止まりがちなら 720p にします（ビットレートは SDK で変更できないため、解像度で下げます）。
+
+## カメラの時刻を GPS 時刻に合わせる
+
+写真の撮影時刻のため、FC の GPS 時刻（MAVLink `SYSTEM_TIME`。届いていなければ 1Hz で要求）で MT11 の時計を合わせます（0x30）。
+
+- 受信から送信までにラズパイで経過した時間を足して送ります。FC→ラズパイの伝送遅延（数〜数十 ms）は残りますが、秒単位の写真時刻には影響しません。
+- 同期するタイミング：GPS 時刻を初めて受けたとき、カメラに（再）接続したとき、10 分ごと、Camera タブの **Sync now**。
+- GPS 時刻がない（未測位）・古い（5 秒以上）ときは送りません。
+- 同期後に 0x40 でカメラの時刻を読み返し、往復時間の半分を補正した「ずれ」を Camera タブに表示します。
 
 ## Tests
 

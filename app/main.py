@@ -13,6 +13,7 @@ from app.camera_protocol import CameraClient
 from app.mavlink_source import MavlinkSource
 from app.roi_config import RoiConfig, load_roi_config, save_roi_config
 from app.roi_controller import RoiController, RoiTarget
+from app.time_sync import TimeSync
 from app.video_routes import cancel_ai_tracking_async, create_video_router
 
 
@@ -50,6 +51,10 @@ roi = RoiController(
     rate_hz=roi_config.rate_hz,
     yaw_offset_deg=roi_config.yaw_offset_deg,
 )
+
+
+# Camera clock follows GPS time from the FC (photo timestamps)
+time_sync = TimeSync(camera, mavlink)
 
 
 def _apply_roi_targets(config: RoiConfig) -> None:
@@ -130,6 +135,7 @@ def startup_event() -> None:
     threading.Thread(target=background_status_loop, daemon=True).start()
     mavlink.start()
     roi.start_background()
+    time_sync.start_background()
 
 
 @app.get("/")
@@ -163,7 +169,26 @@ def get_status() -> dict:
         "updated_at": camera.state.updated_at,
         "roi": _roi_status(),
         "vehicle": _vehicle_status(),
+        "time_sync": _time_sync_status(),
     }
+
+
+def _time_sync_status() -> dict:
+    st = time_sync.status()
+    return {
+        "synced": bool(st.last_sync_ok),
+        "age_s": round(time.monotonic() - st.last_sync_at, 1) if st.last_sync_at is not None else None,
+        "offset_ms": st.offset_ms,
+        "rtt_ms": st.rtt_ms,
+        "error": st.error,
+        "camera_ack": camera.state.utc_set_ok,
+    }
+
+
+@app.post("/api/time/sync")
+def api_time_sync() -> dict:
+    time_sync.request_sync()  # performed by the background loop within ~1 s
+    return {"ok": True}
 
 
 def _roi_status() -> dict:
