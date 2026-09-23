@@ -198,6 +198,7 @@ class TestTrackDetection:
         res = client.post("/api/ai/track-detection", json={"x": 0.45, "y": 0.5})
         assert res.status_code == 200
         body = res.json()
+        assert body["mode"] == "detection"
         assert body["detection"]["class_name"] == "person"
         assert body["point"] == {"x": 960, "y": 648}
         assert client.cam.calls == [("ai_mode", True), ("point", 960, 648)]
@@ -209,10 +210,15 @@ class TestTrackDetection:
         assert client.post("/api/ai/track-detection", json={"x": 0.1, "y": 0.1}).status_code == 404
         assert client.cam.calls == []
 
-    def test_old_frames_ignored(self, client, monkeypatch):
+    def test_no_detection_data_falls_back_to_point_at_click(self, client, monkeypatch):
+        # firmware without 0x5F: let the camera pick the detected object at the click
         monkeypatch.setattr(video_routes.time, "monotonic", lambda: 20.0)
-        client.cam.state.detection_history = (frame_at(10.0, PERSON),)
-        assert client.post("/api/ai/track-detection", json={"x": 0.45, "y": 0.5}).status_code == 404
+        client.cam.state.detection_history = (frame_at(10.0, PERSON),)  # stale only
+        res = client.post("/api/ai/track-detection", json={"x": 0.25, "y": 0.5})
+        assert res.status_code == 200
+        assert res.json()["mode"] == "point_at_click"
+        assert res.json()["detection"] is None
+        assert client.cam.calls == [("ai_mode", True), ("point", 480, 540)]
 
     def test_rgb_only(self, client):
         client.cam.state.video_mode_name = "thermal"
@@ -231,4 +237,5 @@ def test_debug_rx_endpoint(client, monkeypatch):
     monkeypatch.setattr(client.cam, "rx_debug", lambda: {"counts": {"0x5F": 3}, "last": {}}, raising=False)
     body = client.get("/api/debug/rx").json()
     assert body["counts"]["0x5F"] == 3
+    assert "firmware" in body
     assert body["detection_frames"] == 0

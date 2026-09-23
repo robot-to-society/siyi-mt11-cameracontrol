@@ -105,6 +105,8 @@ def background_status_loop() -> None:
             camera.request_zoom_level()
             if tick % 10 == 0:
                 camera.request_video_mode()
+            if tick % 60 == 0:
+                camera.request_firmware_version()  # 0.0.0 during the camera's ~30 s boot
             if tick % 30 == 0 or camera.state.stream_width == 0:
                 camera.request_encoding_params()  # every second until the resolution is known
             if tick % 5 == 0:

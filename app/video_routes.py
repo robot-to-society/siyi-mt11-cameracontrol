@@ -148,10 +148,17 @@ def create_video_router(get_camera: Callable[[], Any], get_roi: Callable[[], Any
         check_trackable(state)
         now = time.monotonic()
         frames = [f for f in state.detection_history if now - f.received_at <= DETECTION_LOOKBACK_S]
-        detection = pick_detection(frames, payload.x, payload.y) if frames else None
-        if detection is None:
-            raise HTTPException(status_code=404, detail="no detected object at that position")
-        cx, cy = detection.center
+        if frames:
+            detection = pick_detection(frames, payload.x, payload.y)
+            if detection is None:
+                raise HTTPException(status_code=404, detail="no detected object at that position")
+            mode = "detection"
+            cx, cy = detection.center
+        else:
+            # No 0x5F data (e.g. firmware without candidate push): send the click itself as a
+            # point selection and let the camera pick the object it detects there.
+            detection, mode = None, "point_at_click"
+            cx, cy = payload.x, payload.y
         x, y = normalized_to_stream_point(cx, cy, state.stream_width, state.stream_height)
         get_roi().stop()
         try:
@@ -162,7 +169,10 @@ def create_video_router(get_camera: Callable[[], Any], get_roi: Callable[[], Any
             raise HTTPException(status_code=502, detail=f"camera command failed: {exc}") from exc
         return {
             "ok": True,
-            "detection": {"class_name": detection.class_name, "score": round(detection.score, 2)},
+            "mode": mode,
+            "detection": (
+                {"class_name": detection.class_name, "score": round(detection.score, 2)} if detection else None
+            ),
             "point": {"x": x, "y": y},
         }
 
@@ -204,6 +214,7 @@ def create_video_router(get_camera: Callable[[], Any], get_roi: Callable[[], Any
         return {
             **camera.rx_debug(),
             "detection_frames": len(state.detection_history),
+            "firmware": state.firmware,
             "ai_mode_result": state.ai_mode_result,
             "ai_select_result": state.ai_select_result,
         }

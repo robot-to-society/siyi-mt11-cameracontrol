@@ -53,6 +53,17 @@ def encode_gimbal_angle(yaw_deg: float, pitch_deg: float) -> bytes:
     return struct.pack("<hh", int(round(yaw_deg * 10.0)), int(round(pitch * 10.0)))
 
 
+def parse_firmware_versions(payload: bytes) -> Optional[dict]:
+    """0x01 ACK: camera/gimbal/zoom uint32 (LE). Low 3 bytes = patch, minor, major; top byte = model."""
+    if len(payload) < 12:
+        return None
+    versions = {}
+    for name, offset in (("camera", 0), ("gimbal", 4), ("zoom", 8)):
+        patch_v, minor, major = payload[offset], payload[offset + 1], payload[offset + 2]
+        versions[name] = f"v{major}.{minor}.{patch_v}"
+    return versions
+
+
 DETECTION_HISTORY_S = 1.5  # keep enough candidate frames to cover the video latency
 DETECTION_HISTORY_MAX = 60
 
@@ -78,6 +89,7 @@ class CameraState:
     ai_select_at: float = 0.0
     track: Optional[TrackTarget] = None  # last 0x50 frame
     detection_history: tuple[DetectionFrame, ...] = ()  # recent 0x5F frames (oldest first)
+    firmware: Optional[dict] = None  # 0x01 (camera/gimbal/zoom versions)
 
 
 class CameraClient:
@@ -169,6 +181,10 @@ class CameraClient:
         seq = self._next_seq()
         packet = make_packet(cmd_id=cmd_id, data=data, ctrl=ctrl, seq=seq)
         self._send_raw(packet)
+
+    def request_firmware_version(self) -> None:
+        """CMD 0x01: Request Firmware Version (TCP)"""
+        self.send_cmd(cmd_id=0x01, data=b"", ctrl=0x01)
 
     def request_status(self) -> None:
         self.send_cmd(cmd_id=0x0A, data=b"", ctrl=0x01)
@@ -430,6 +446,10 @@ class CameraClient:
             track = parse_track_frame(payload, received_at=time.monotonic())
             if track is not None:
                 self.state.track = track
+        elif cmd_id == 0x01:
+            versions = parse_firmware_versions(payload)
+            if versions is not None:
+                self.state.firmware = versions
         elif cmd_id == 0x5F:
             frame = parse_candidate_frame(payload, received_at=time.monotonic())
             if frame is not None:

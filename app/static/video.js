@@ -216,7 +216,12 @@ async function trackDetection(p) {
   try {
     const body = await postTrack("/api/ai/track-detection", { x: p.nx, y: p.ny });
     const d = body.detection;
-    setMessage(`検出物体を選択: ${d.class_name} ${Math.round(d.score * 100)}%（点 [${body.point.x},${body.point.y}]）`);
+    const pt = `[${body.point.x},${body.point.y}]`;
+    setMessage(
+      d
+        ? `検出物体を選択: ${d.class_name} ${Math.round(d.score * 100)}%（点 ${pt}）`
+        : `検出枠データなし: クリック位置 ${pt} を点指定で送信（カメラが物体を選択）`,
+    );
   } catch (e) {
     const text = e.status === 404 ? "その位置に検出枠がありません" : `選択に失敗: ${e.message}`;
     setMessage(text, true);

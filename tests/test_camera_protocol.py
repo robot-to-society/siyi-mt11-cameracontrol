@@ -185,3 +185,24 @@ def test_rx_debug_records_counts_and_last_payload():
     assert info["counts"]["0x5F"] == 2
     assert info["last"]["0x5F"]["len"] == 2
     assert info["last"]["0x5F"]["hex"] == "0500"
+
+
+class TestFirmware:
+    def test_parse_sdk_examples(self):
+        from app.camera_protocol import parse_firmware_versions
+
+        # camera 0x89 01 00 01 -> v1.0.1, gimbal 0x8A 00 01 0A -> v0.1.10 (bytes little-endian on the wire)
+        payload = bytes([0x01, 0x00, 0x01, 0x89, 0x0A, 0x01, 0x00, 0x8A, 0, 0, 0, 0])
+        assert parse_firmware_versions(payload) == {"camera": "v1.0.1", "gimbal": "v0.1.10", "zoom": "v0.0.0"}
+
+    def test_short_payload(self):
+        from app.camera_protocol import parse_firmware_versions
+
+        assert parse_firmware_versions(b"\x01\x02") is None
+
+    def test_handle_and_request(self):
+        client = RecordingClient()
+        client.request_firmware_version()
+        assert client.sent == [("tcp", 0x01, b"")]
+        client._handle_frame(0x01, bytes([1, 0, 1, 0x89, 0x0A, 1, 0, 0x8A, 0, 0, 0, 0]))
+        assert client.state.firmware["gimbal"] == "v0.1.10"
