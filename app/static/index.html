@@ -232,6 +232,12 @@
             </table>
           </div>
           <p class="muted roi-line">ボタン機能 roi_1〜roi_10 に割り当てると、押すたびに追従開始/停止を切り替えます。</p>
+          <div class="roi-import-row">
+            <button id="roi-csv-btn" class="ghost-btn">Import CSV</button>
+            <span class="muted">形式: 名前,lat,lon,alt（先頭10行まで、UTF-8 / Shift_JIS）</span>
+            <input id="roi-csv-input" type="file" accept=".csv,text/csv" hidden />
+          </div>
+          <p id="roi-csv-hint" class="muted roi-line"></p>
         </section>
 
         <section class="js-section js-settings-row">
@@ -253,5 +259,6 @@
     <script src="/static/app.js"></script>
     <script type="module" src="/static/video.js"></script>
     <script type="module" src="/static/encoding.js"></script>
+    <script type="module" src="/static/roi_import.js"></script>
   </body>
 </html>

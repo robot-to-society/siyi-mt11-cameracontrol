@@ -815,3 +815,12 @@ body.pip-body {
   border: none;
   border-radius: 0;
 }
+
+.roi-import-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+}

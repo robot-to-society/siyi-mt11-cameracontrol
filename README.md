@@ -70,6 +70,7 @@ Rpanion の **Flight Controller → Telemetry Destinations** に `127.0.0.1:1555
 ### 使い方
 
 1. UI の **ROI** タブで `roi_1`〜`roi_10` の緯度・経度・**海抜高度 (MSL, m)** を入力して保存（`app/roi_config.json`）
+   - **Import CSV** でファイルから読み込むこともできます。形式は `名前,lat,lon,alt`（alt は海抜高度 m、1行目の見出しは省略可、UTF-8 / Shift_JIS）です。上から10行までを `roi_1`〜`roi_10` に入れ、残りの枠は空になります。不正な行があれば読み込みを中止します。読み込み後に **Save ROI Config** で保存します。
 2. **Joystick** タブのボタン割当で `roi_1`〜`roi_10`（押すたびに開始/停止）や `roi_stop` を設定
 3. パン/チルト操作やセンター操作をすると ROI は自動で解除されます
 

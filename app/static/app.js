@@ -845,6 +845,15 @@ async function loadRoiConfig() {
   }
 }
 
+// Called by roi_import.js (CSV import): replace the table contents; Save persists them.
+async function applyRoiImport(targets) {
+  if (!roiConfig) await loadRoiConfig();
+  if (!roiConfig) throw new Error("ROI config not loaded");
+  roiConfig = { ...roiConfig, targets };
+  renderRoiTargets();
+}
+window.applyRoiImport = applyRoiImport;
+
 function collectRoiConfig() {
   const rows = Array.from(document.querySelectorAll("#roi-target-tbody tr"));
   const num = (row, cls) => parseFloat(row.querySelector(`.${cls}`).value);
