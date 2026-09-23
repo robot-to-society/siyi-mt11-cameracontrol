@@ -69,8 +69,8 @@ Rpanion の **Flight Controller → Telemetry Destinations** に `127.0.0.1:1555
 
 ### 使い方
 
-1. UI の **ROI** タブで `roi_1`〜`roi_4` の緯度・経度・**海抜高度 (MSL, m)** を入力して保存（`app/roi_config.json`）
-2. **Joystick** タブのボタン割当で `roi_1`〜`roi_4`（押すたびに開始/停止）や `roi_stop` を設定
+1. UI の **ROI** タブで `roi_1`〜`roi_10` の緯度・経度・**海抜高度 (MSL, m)** を入力して保存（`app/roi_config.json`）
+2. **Joystick** タブのボタン割当で `roi_1`〜`roi_10`（押すたびに開始/停止）や `roi_stop` を設定
 3. パン/チルト操作やセンター操作をすると ROI は自動で解除されます
 
 ### 事前確認（実機）

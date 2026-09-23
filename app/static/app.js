@@ -221,7 +221,7 @@ const AXIS_FUNCTIONS = ["none", "pan", "tilt", "zoom_abs", "zoom_speed", "zoom_s
 const BTN_FUNCTIONS = ["none", "shutter", "thermal_toggle", "center_gimbal", "record_toggle",
                        "focus_far", "focus_near", "thermal_gain_toggle", "ai_tracking_toggle",
                        "gimbal_stop", "zoom_in_step", "zoom_out_step",
-                       "roi_1", "roi_2", "roi_3", "roi_4", "roi_stop"];
+                       ...Array.from({ length: 10 }, (_, i) => `roi_${i + 1}`), "roi_stop"];
 
 let jsConfig = {
   enabled: false,
@@ -538,6 +538,10 @@ function processButtons(buttons) {
 }
 
 function handleButtonPress(fn) {
+  if (/^roi_\d+$/.test(fn)) {
+    toggleRoi(fn);
+    return;
+  }
   switch (fn) {
     case "shutter":
       postJSON("/api/photo").catch(() => {});
@@ -584,12 +588,6 @@ function handleButtonPress(fn) {
       break;
     case "zoom_out_step":
       postJSON("/api/zoom/dec").catch(() => {});
-      break;
-    case "roi_1":
-    case "roi_2":
-    case "roi_3":
-    case "roi_4":
-      toggleRoi(fn);
       break;
     case "roi_stop":
       stopRoi();
