@@ -109,7 +109,7 @@ def background_status_loop() -> None:
                 camera.request_encoding_params()  # every second until the resolution is known
             if tick % 5 == 0:
                 camera.set_track_stream(True)  # 0x50 push; re-enabled after reconnect/reboot
-                camera.set_candidate_push(True)  # 0x5F detection boxes for Shift+click
+                camera.set_candidate_push(True)  # 0x5F detection boxes for Ctrl+click
             tick += 1
         except Exception:  # noqa: BLE001
             try:

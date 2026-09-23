@@ -40,7 +40,7 @@ TRACK_MAX_AGE_S = 1.0
 SSE_INTERVAL_S = 0.1
 SSE_KEEPALIVE_S = 2.0
 LEGACY_CENTER_BOX_PX = 200
-# Shift+click is tested against detection frames this recent (covers LTE video delay)
+# Ctrl+click is tested against detection frames this recent (covers LTE video delay)
 DETECTION_LOOKBACK_S = 1.0
 # Boxes shown in the overlay must be fresh
 DETECTION_SHOW_MAX_AGE_S = 0.5
@@ -142,7 +142,7 @@ def create_video_router(get_camera: Callable[[], Any], get_roi: Callable[[], Any
 
     @router.post("/api/ai/track-detection")
     def api_track_detection(payload: TrackDetectionPayload) -> dict:
-        """Shift+click: select the camera-detected object under the click (0x56 point)."""
+        """Ctrl+click: select the camera-detected object under the click (0x56 point)."""
         camera = get_camera()
         state = camera.state
         check_trackable(state)
@@ -195,6 +195,18 @@ def create_video_router(get_camera: Callable[[], Any], get_roi: Callable[[], Any
 
         headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
         return StreamingResponse(stream(), media_type="text/event-stream", headers=headers)
+
+    @router.get("/api/debug/rx")
+    def api_debug_rx() -> dict:
+        """What the camera has sent us (to diagnose missing 0x5F / 0x50 pushes)."""
+        camera = get_camera()
+        state = camera.state
+        return {
+            **camera.rx_debug(),
+            "detection_frames": len(state.detection_history),
+            "ai_mode_result": state.ai_mode_result,
+            "ai_select_result": state.ai_select_result,
+        }
 
     @router.get("/api/video/encoding")
     def api_get_encoding() -> dict:

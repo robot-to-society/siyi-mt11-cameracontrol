@@ -174,3 +174,14 @@ class TestDetections:
         clock["t"] = 103.0
         client._handle_frame(0x5F, candidate_payload([]))
         assert len(client.state.detection_history) == 1  # older than 1.5 s pruned
+
+
+def test_rx_debug_records_counts_and_last_payload():
+    client = CameraClient()
+    frame = make_packet(0x5F, b"\x05\x00\x01\x02", seq=1)
+    buf = bytearray(frame + make_packet(0x5F, b"\x05\x00", seq=2))
+    client._parse_buffer(buf)
+    info = client.rx_debug()
+    assert info["counts"]["0x5F"] == 2
+    assert info["last"]["0x5F"]["len"] == 2
+    assert info["last"]["0x5F"]["hex"] == "0500"

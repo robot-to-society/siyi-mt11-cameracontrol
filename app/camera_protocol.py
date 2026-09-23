@@ -96,6 +96,9 @@ class CameraClient:
         self._recv_thread: Optional[threading.Thread] = None
         self._heartbeat_thread: Optional[threading.Thread] = None
         self._on_state_change: Optional[Callable[[CameraState], None]] = None
+        # Diagnostics: frames received per CMD_ID and the last payload of each (for /api/debug/rx)
+        self._rx_counts: dict[int, int] = {}
+        self._rx_last: dict[int, tuple[float, bytes]] = {}
 
     def set_on_state_change(self, callback: Callable[[CameraState], None]) -> None:
         self._on_state_change = callback
@@ -396,7 +399,24 @@ class CameraClient:
 
             cmd_id = frame[7]
             payload = frame[8:-2]
+            self._rx_counts[cmd_id] = self._rx_counts.get(cmd_id, 0) + 1
+            self._rx_last[cmd_id] = (time.monotonic(), payload)
             self._handle_frame(cmd_id, payload)
+
+    def rx_debug(self, max_hex_bytes: int = 160) -> dict:
+        """Counts and last payload (hex) per received CMD_ID."""
+        now = time.monotonic()
+        return {
+            "counts": {f"0x{cmd:02X}": n for cmd, n in sorted(self._rx_counts.items())},
+            "last": {
+                f"0x{cmd:02X}": {
+                    "age_s": round(now - at, 1),
+                    "len": len(payload),
+                    "hex": payload[:max_hex_bytes].hex(),
+                }
+                for cmd, (at, payload) in sorted(self._rx_last.items())
+            },
+        }
 
     def _handle_frame(self, cmd_id: int, payload: bytes) -> None:
         if cmd_id == 0x20:

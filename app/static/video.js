@@ -57,7 +57,7 @@ let snapshot = null; // latest /api/ai/events payload
 let hover = null; // { nx, ny }
 let flash = null; // { nx, ny, until }
 let lastClickAt = 0; // performance.now() of the last track request
-let shiftDown = false; // Shift+click selects a camera-detected object
+let ctrlDown = false; // Ctrl+click selects a camera-detected object
 
 function errorDetail(body, status) {
   const d = body?.detail;
@@ -170,7 +170,7 @@ function draw() {
     const cls = (TRACK_LABELS[track.status] ?? ["", ""])[1];
     strokeRect(ctx, trackToDisplay(track, rect), TRACK_COLORS[cls], false, 3);
   }
-  if (shiftDown && trackingAllowed()) {
+  if (ctrlDown && trackingAllowed()) {
     drawDetections(ctx, rect);
   } else if (hover && trackingAllowed()) {
     const b = previewBox(hover.nx, hover.ny, rect, sw, sh, currentBoxPx());
@@ -185,17 +185,17 @@ function draw() {
 // ── interaction ─────────────────────────────────────────────────
 canvas.addEventListener("mousemove", (ev) => {
   hover = toNormalized(...localPoint(ev), pictureRect());
-  shiftDown = ev.shiftKey;
+  ctrlDown = ev.ctrlKey;
 });
 
-// Track Shift in whichever window hosts the video (main page or Document PiP)
-function bindShiftKey(win) {
-  const update = (ev) => { shiftDown = ev.shiftKey; };
+// Track Ctrl in whichever window hosts the video (main page or Document PiP)
+function bindCtrlKey(win) {
+  const update = (ev) => { ctrlDown = ev.ctrlKey; };
   win.addEventListener("keydown", update);
   win.addEventListener("keyup", update);
-  win.addEventListener("blur", () => { shiftDown = false; });
+  win.addEventListener("blur", () => { ctrlDown = false; });
 }
-bindShiftKey(window);
+bindCtrlKey(window);
 
 async function postTrack(url, payload) {
   const res = await fetch(url, {
@@ -224,7 +224,16 @@ async function trackDetection(p) {
 }
 canvas.addEventListener("mouseleave", () => { hover = null; });
 
-canvas.addEventListener("click", async (ev) => {
+// macOS turns Ctrl+click into a right-click (contextmenu, no click event): handle it the same way
+canvas.addEventListener("contextmenu", (ev) => {
+  if (!ev.ctrlKey) return;
+  ev.preventDefault();
+  handleVideoClick(ev);
+});
+
+canvas.addEventListener("click", (ev) => handleVideoClick(ev));
+
+async function handleVideoClick(ev) {
   if (!trackingAllowed()) {
     setMessage("AIトラッキングはRGBモードでのみ使えます", true);
     return;
@@ -232,7 +241,7 @@ canvas.addEventListener("click", async (ev) => {
   const p = toNormalized(...localPoint(ev), pictureRect());
   if (!p) return; // clicked on the black bars
   lastClickAt = performance.now();
-  if (ev.shiftKey) {
+  if (ev.ctrlKey) {
     await trackDetection(p);
     return;
   }
@@ -244,7 +253,7 @@ canvas.addEventListener("click", async (ev) => {
   } catch (e) {
     setMessage(`追跡開始に失敗: ${e.message}`, true);
   }
-});
+}
 
 cancelBtn.addEventListener("click", async () => {
   try {
@@ -309,7 +318,7 @@ setupDisplayModes({
   pipBtn: document.getElementById("video-pip-btn"),
   onLayoutChange: resizeCanvas,
   onMessage: setMessage,
-  onPipWindow: bindShiftKey,
+  onPipWindow: bindCtrlKey,
 });
 resizeCanvas();
 requestAnimationFrame(draw);

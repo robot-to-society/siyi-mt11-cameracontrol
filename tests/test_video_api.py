@@ -225,3 +225,10 @@ def test_snapshot_includes_recent_detections():
     snap = video_routes.ai_snapshot(state, now=10.3)
     assert snap["detections"][0]["class_name"] == "person"
     assert video_routes.ai_snapshot(state, now=11.0)["detections"] == []
+
+
+def test_debug_rx_endpoint(client, monkeypatch):
+    monkeypatch.setattr(client.cam, "rx_debug", lambda: {"counts": {"0x5F": 3}, "last": {}}, raising=False)
+    body = client.get("/api/debug/rx").json()
+    assert body["counts"]["0x5F"] == 3
+    assert body["detection_frames"] == 0
