@@ -132,8 +132,12 @@ def run(args: argparse.Namespace) -> None:
                     if got == cmd:
                         _print_reply(cmd, payload)
                         received += 1
+                    elif args.verbose:
+                        # other traffic (e.g. a reply under a different CMD_ID)
+                        print(f"  other frame 0x{got:02X} len={len(payload)} hex={payload[:40].hex()}")
         if received == 0:
-            print("no reply: is the video in Thermal mode? (Camera tab -> サーマル映像)")
+            print(f"no reply to 0x{cmd:02X}: is the video in Thermal mode? (Camera tab -> サーマル映像)")
+            print("  try --continuous, and --verbose to see every frame the camera sends")
     except KeyboardInterrupt:
         pass
     finally:
@@ -153,6 +157,7 @@ def main() -> None:
     parser.add_argument("--count", type=int, default=5, help="number of cycles")
     parser.add_argument("--interval", type=float, default=1.0, help="seconds per cycle (SDK: ~1 Hz update)")
     parser.add_argument("--continuous", action="store_true", help="flag 2: camera pushes at ~5 Hz")
+    parser.add_argument("--verbose", action="store_true", help="also print frames with other CMD_IDs")
     args = parser.parse_args()
     if args.kind == "point" and not args.point:
         parser.error("--kind point needs --point X Y")
