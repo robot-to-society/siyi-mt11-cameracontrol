@@ -107,6 +107,19 @@
 
         <section class="mode-section">
           <div class="zoom-head">
+            <span>GIMBAL MODE</span>
+            <span id="gimbal-mode-value" class="muted">-</span>
+          </div>
+          <div class="btn-row">
+            <button class="mode-btn gimbal-mode-btn" data-gimbal-mode="lock">Lock</button>
+            <button class="mode-btn gimbal-mode-btn" data-gimbal-mode="follow">Follow</button>
+            <button class="mode-btn gimbal-mode-btn" data-gimbal-mode="fpv">FPV</button>
+          </div>
+          <p class="muted">GPS ROI の動作中は Follow 固定です</p>
+        </section>
+
+        <section class="mode-section">
+          <div class="zoom-head">
             <span>STREAM ENCODING</span>
             <span id="enc-current" class="muted">取得中...</span>
           </div>
@@ -133,6 +146,7 @@
             <button class="mode-btn" id="gain-low-btn" data-gain="0">Low Gain</button>
             <button class="mode-btn" id="gain-high-btn" data-gain="1">High Gain</button>
           </div>
+          <p class="muted">温度レンジ: <span id="thermal-range-text">取得中...</span>（High: -20〜150℃ / Low: 0〜550℃）</p>
           <div class="palette-row">
             <span class="palette-label">Palette</span>
             <select id="palette-select" class="palette-select">
@@ -264,6 +278,27 @@
             <label for="roi-yaw-offset">Yaw Offset (°, + = 左)</label>
             <input id="roi-yaw-offset" type="number" step="0.1" min="-180" max="180" class="js-num-input" />
           </div>
+        </section>
+
+        <section class="js-section">
+          <div class="js-section-head">CONTROL（ジンバルの動かし方）</div>
+          <div class="roi-control-grid">
+            <label>Mode
+              <select id="roi-control-mode" class="js-num-input">
+                <option value="rate">rate（PID速度制御）</option>
+                <option value="angle">angle（角度指令）</option>
+              </select>
+            </label>
+            <label>Target Hz<input data-roi-field="target_rate_hz" type="number" step="0.5" min="0.2" max="10" class="js-num-input" /></label>
+            <label>Control Hz<input data-roi-field="rate_hz" type="number" step="1" min="1" max="50" class="js-num-input" /></label>
+            <label>Smoothing τ (s)<input data-roi-field="smoothing_tau_s" type="number" step="0.1" min="0" max="10" class="js-num-input" /></label>
+            <label>Deadband (°)<input data-roi-field="deadband_deg" type="number" step="0.1" min="0" max="5" class="js-num-input" /></label>
+            <label>Kp<input data-roi-field="pid_kp" type="number" step="0.1" min="0" max="50" class="js-num-input" /></label>
+            <label>Ki<input data-roi-field="pid_ki" type="number" step="0.05" min="0" max="20" class="js-num-input" /></label>
+            <label>Kd<input data-roi-field="pid_kd" type="number" step="0.05" min="0" max="10" class="js-num-input" /></label>
+            <label>Max speed<input data-roi-field="max_speed" type="number" step="5" min="1" max="100" class="js-num-input" /></label>
+          </div>
+          <p class="muted roi-line">rate: 目標角度とジンバルの実角度の差をPIDで速度指令(0x07)に変換。Kp を上げると速く、揺れるなら Kp を下げるか Deadband / Smoothing を大きく。Save で即反映。</p>
         </section>
 
         <button id="roi-save-btn" class="js-save-btn">Save ROI Config</button>

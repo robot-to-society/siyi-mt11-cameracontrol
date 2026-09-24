@@ -6,7 +6,11 @@ import os
 import re
 from pathlib import Path
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, ValidationError, field_validator
+
+from app.roi_controller import ControlSettings
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +30,17 @@ class RoiTargetModel(BaseModel):
 
 class RoiConfig(BaseModel):
     mavlink_url: str = Field(default="udpin:127.0.0.1:15555", min_length=1, max_length=256)
-    rate_hz: float = Field(default=10.0, gt=0.0, le=50.0)
+    rate_hz: float = Field(default=10.0, gt=0.0, le=50.0)  # control loop (0x07 / 0x0E)
     yaw_offset_deg: float = Field(default=0.0, ge=-180.0, le=180.0)
+    # "rate": PID on gimbal attitude -> 0x07 speed (smooth). "angle": 0x0E angle commands.
+    control_mode: Literal["rate", "angle"] = "rate"
+    target_rate_hz: float = Field(default=2.0, ge=0.2, le=10.0)  # goal recomputation from GPS/heading
+    smoothing_tau_s: float = Field(default=0.8, ge=0.0, le=10.0)
+    deadband_deg: float = Field(default=0.3, ge=0.0, le=5.0)
+    pid_kp: float = Field(default=2.0, ge=0.0, le=50.0)
+    pid_ki: float = Field(default=0.2, ge=0.0, le=20.0)
+    pid_kd: float = Field(default=0.0, ge=0.0, le=10.0)
+    max_speed: float = Field(default=60.0, ge=1.0, le=100.0)  # 0x07 units
     targets: list[RoiTargetModel] = Field(default_factory=list, max_length=20)
 
     @field_validator("mavlink_url")
@@ -67,6 +80,21 @@ def with_default_slots(config: RoiConfig) -> RoiConfig:
 
 
 DEFAULT_ROI_CONFIG = RoiConfig(targets=[_empty_slot(i) for i in range(1, ROI_SLOT_COUNT + 1)])
+
+
+def to_control_settings(config: RoiConfig) -> ControlSettings:
+    return ControlSettings(
+        mode=config.control_mode,
+        control_rate_hz=config.rate_hz,
+        target_rate_hz=config.target_rate_hz,
+        smoothing_tau_s=config.smoothing_tau_s,
+        deadband_deg=config.deadband_deg,
+        kp=config.pid_kp,
+        ki=config.pid_ki,
+        kd=config.pid_kd,
+        max_speed=config.max_speed,
+        yaw_offset_deg=config.yaw_offset_deg,
+    )
 
 
 def load_roi_config(path: Path) -> RoiConfig:

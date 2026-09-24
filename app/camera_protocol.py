@@ -65,6 +65,30 @@ def parse_firmware_versions(payload: bytes) -> Optional[dict]:
     return versions
 
 
+@dataclass(frozen=True)
+class GimbalAttitude:
+    """0x0D: yaw (body-relative in Follow mode, +left), pitch (horizon, +up), roll in degrees."""
+
+    yaw: float
+    pitch: float
+    roll: float
+    received_at: float  # monotonic
+
+
+def parse_gimbal_attitude(payload: bytes, received_at: float) -> Optional[GimbalAttitude]:
+    if len(payload) < 6:
+        return None
+    yaw, pitch, roll = struct.unpack("<hhh", payload[:6])
+    return GimbalAttitude(yaw / 10.0, pitch / 10.0, roll / 10.0, received_at)
+
+
+GIMBAL_MODES = {0: "lock", 1: "follow", 2: "fpv"}  # 0x19 ACK
+THERMAL_GAINS = {0: "low", 1: "high"}  # 0x37 / 0x38 Ir_gain
+# Measurement range per gain (UniPod MT11 User Manual v1.0 spec table)
+THERMAL_GAIN_RANGE_C = {"high": (-20, 150), "low": (0, 550)}
+GIMBAL_MODE_FUNC = {"lock": 3, "follow": 4, "fpv": 5}  # 0x0C func_type
+
+
 # Commands this app must never send. 0x48 formats the SD card (and the SDK text mislabels
 # TF-card info as 0x48 in one place), so it is blocked at the lowest send level.
 FORBIDDEN_CMD_IDS = frozenset({0x48})
@@ -104,6 +128,9 @@ class CameraState:
     utc_set_ok: Optional[bool] = None  # last 0x30 ACK
     camera_time: Optional[tuple[int, float]] = None  # last 0x40: (camera unix us, monotonic received)
     tf_card: Optional[TfCardInfo] = None  # last 0x49
+    gimbal_attitude: Optional[GimbalAttitude] = None  # last 0x0D
+    gimbal_mode: Optional[str] = None  # last 0x19: lock / follow / fpv
+    thermal_gain: Optional[str] = None  # last 0x37 / 0x38: low / high
 
 
 class CameraClient:
@@ -208,6 +235,20 @@ class CameraClient:
     def request_system_time(self) -> None:
         """CMD 0x40: Request System Time (TCP)"""
         self.send_cmd(cmd_id=0x40, data=b"", ctrl=0x01)
+
+    def request_gimbal_mode(self) -> None:
+        """CMD 0x19: Request Current Gimbal Mode (TCP)"""
+        self.send_cmd(cmd_id=0x19, data=b"", ctrl=0x01)
+
+    def set_gimbal_mode_name(self, name: str) -> None:
+        """Lock / Follow / FPV via CMD 0x0C (func 3/4/5)."""
+        if name not in GIMBAL_MODE_FUNC:
+            raise ValueError(f"unsupported gimbal mode: {name}")
+        self.set_gimbal_motion_mode(GIMBAL_MODE_FUNC[name])
+
+    def request_gimbal_attitude(self) -> None:
+        """CMD 0x0D: Request Gimbal Attitude Data (TCP)"""
+        self.send_cmd(cmd_id=0x0D, data=b"", ctrl=0x01)
 
     def request_tf_card_info(self) -> None:
         """CMD 0x49: Request TF Card Information (TCP). NOT 0x48, which formats the card."""
@@ -331,6 +372,10 @@ class CameraClient:
         """
         val = max(-1, min(1, direction))
         self.send_cmd(cmd_id=0x06, data=struct.pack("<b", val), ctrl=0x01)
+
+    def request_thermal_gain(self) -> None:
+        """CMD 0x37: Request Thermal Imaging Gain Mode (TCP)"""
+        self.send_cmd(cmd_id=0x37, data=b"", ctrl=0x01)
 
     def set_thermal_gain(self, gain: int) -> None:
         """CMD 0x38: Set Thermal Imaging Gain Mode (TCP)
@@ -474,6 +519,15 @@ class CameraClient:
             track = parse_track_frame(payload, received_at=time.monotonic())
             if track is not None:
                 self.state.track = track
+        elif cmd_id in (0x37, 0x38) and len(payload) >= 1:
+            self.state.thermal_gain = THERMAL_GAINS.get(payload[0], f"gain_{payload[0]}")
+        elif cmd_id == 0x19 and len(payload) >= 1:
+            self.state.gimbal_mode = GIMBAL_MODES.get(payload[0], f"mode_{payload[0]}")
+            self._notify_state_change()
+        elif cmd_id == 0x0D:
+            attitude = parse_gimbal_attitude(payload, received_at=time.monotonic())
+            if attitude is not None:
+                self.state.gimbal_attitude = attitude
         elif cmd_id == 0x49:
             info = parse_tf_card(payload)
             if info is not None:

@@ -85,7 +85,59 @@ function setStatusUI(data) {
   updateRoiUI(data.roi, data.vehicle);
   updateTimeSyncUI(data.time_sync);
   updateTfCardUI(data.tf_card);
+  updateGimbalModeUI(data.gimbal_mode);
+  updateThermalUI(data.thermal);
 }
+
+function updateThermalUI(thermal) {
+  const text = document.getElementById("thermal-range-text");
+  if (!thermal) {
+    if (text) text.textContent = "取得中...";
+    return;
+  }
+  const range = thermal.range_min_c === null ? "" : `${thermal.range_min_c}〜${thermal.range_max_c}℃`;
+  if (text) text.textContent = `${thermal.gain === "high" ? "High Gain" : "Low Gain"} ${range}`;
+  document.getElementById("gain-low-btn")?.classList.toggle("active", thermal.gain === "low");
+  document.getElementById("gain-high-btn")?.classList.toggle("active", thermal.gain === "high");
+}
+
+// ─── Gimbal mode (Lock / Follow / FPV) ────────────────────────────
+const GIMBAL_MODES = ["lock", "follow", "fpv"];
+let gimbalMode = null;
+
+function updateGimbalModeUI(mode) {
+  gimbalMode = mode ?? null;
+  const label = document.getElementById("gimbal-mode-value");
+  if (label) label.textContent = mode ? mode.toUpperCase() : "-";
+  document.querySelectorAll(".gimbal-mode-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.gimbalMode === mode);
+  });
+}
+
+async function setGimbalMode(mode) {
+  try {
+    await postJSON("/api/gimbal/mode", { mode });
+    updateGimbalModeUI(mode);
+    setTimeout(refreshStatus, 300);
+  } catch (e) {
+    let detail = e.message;
+    try {
+      detail = JSON.parse(e.message).detail ?? detail;
+    } catch {
+      /* plain text error */
+    }
+    connectionText.textContent = `Gimbal mode: ${detail}`;
+  }
+}
+
+function cycleGimbalMode() {
+  const idx = GIMBAL_MODES.indexOf(gimbalMode);
+  setGimbalMode(GIMBAL_MODES[(idx + 1) % GIMBAL_MODES.length]);
+}
+
+document.querySelectorAll(".gimbal-mode-btn").forEach((btn) => {
+  btn.addEventListener("click", () => setGimbalMode(btn.dataset.gimbalMode));
+});
 
 const TF_STATUS_TEXT = {
   not_inserted: "未挿入",
@@ -276,6 +328,7 @@ const AXIS_FUNCTIONS = ["none", "pan", "tilt", "zoom_abs", "zoom_speed", "zoom_s
 const BTN_FUNCTIONS = ["none", "shutter", "thermal_toggle", "center_gimbal", "record_toggle",
                        "focus_far", "focus_near", "thermal_gain_toggle", "ai_tracking_toggle",
                        "gimbal_stop", "zoom_in_step", "zoom_out_step", "zoom_1x",
+                       "mode_lock", "mode_follow", "mode_fpv", "mode_cycle",
                        ...Array.from({ length: 10 }, (_, i) => `roi_${i + 1}`), "roi_stop"];
 
 let jsConfig = {
@@ -644,6 +697,14 @@ function handleButtonPress(fn) {
     case "zoom_out_step":
       postJSON("/api/zoom/dec").catch(() => {});
       break;
+    case "mode_lock":
+    case "mode_follow":
+    case "mode_fpv":
+      setGimbalMode(fn.slice("mode_".length));
+      break;
+    case "mode_cycle":
+      cycleGimbalMode();
+      break;
     case "zoom_1x":
       postJSON("/api/zoom/set", { zoom: 1.0 }).then(() => refreshStatus()).catch(() => {});
       break;
@@ -813,7 +874,11 @@ function updateRoiUI(roi, vehicle) {
   badge.className = `js-badge ${roiActiveId ? "connected" : "not-found"}`;
   statusText.textContent = roiActiveId
     ? `dist ${fmtNum(roi.distance_m, 0)} m / brg ${fmtNum(roi.bearing_deg, 1)}° / ` +
-      `cmd yaw ${fmtNum(roi.yaw_cmd_deg, 1)}° pitch ${fmtNum(roi.pitch_cmd_deg, 1)}°`
+      `goal yaw ${fmtNum(roi.yaw_cmd_deg, 1)}° pitch ${fmtNum(roi.pitch_cmd_deg, 1)}°` +
+      (roi.mode === "rate"
+        ? ` / gimbal ${fmtNum(roi.gimbal_yaw_deg, 1)}° ${fmtNum(roi.gimbal_pitch_deg, 1)}°` +
+          ` / speed ${fmtNum(roi.speed_yaw, 0)} ${fmtNum(roi.speed_pitch, 0)}`
+        : "")
     : "-";
 
   if (vehicle.has_position) {
@@ -891,6 +956,11 @@ function renderRoiTargets() {
   }
   document.getElementById("roi-mavlink-url").value = roiConfig.mavlink_url;
   document.getElementById("roi-yaw-offset").value = roiConfig.yaw_offset_deg;
+  document.getElementById("roi-control-mode").value = roiConfig.control_mode ?? "rate";
+  document.querySelectorAll("[data-roi-field]").forEach((input) => {
+    const v = roiConfig[input.dataset.roiField];
+    if (v !== undefined) input.value = v;
+  });
 }
 
 async function loadRoiConfig() {
@@ -921,6 +991,13 @@ function collectRoiConfig() {
     ...roiConfig,
     mavlink_url: document.getElementById("roi-mavlink-url").value.trim(),
     yaw_offset_deg: parseFloat(document.getElementById("roi-yaw-offset").value) || 0,
+    control_mode: document.getElementById("roi-control-mode").value,
+    ...Object.fromEntries(
+      Array.from(document.querySelectorAll("[data-roi-field]")).map((input) => [
+        input.dataset.roiField,
+        parseFloat(input.value),
+      ]),
+    ),
     targets: rows.map((row) => ({
       id: row.dataset.id,
       name: row.querySelector(".roi-name").value.trim(),
@@ -937,6 +1014,12 @@ document.getElementById("roi-save-btn")?.addEventListener("click", async () => {
   const invalid = next.targets.find((t) => [t.lat, t.lon, t.alt_msl].some(Number.isNaN));
   if (invalid) {
     hint.textContent = `${invalid.id}: 数値を入力してください`;
+    return;
+  }
+  const badControl = Array.from(document.querySelectorAll("[data-roi-field]"))
+    .find((input) => Number.isNaN(parseFloat(input.value)));
+  if (badControl) {
+    hint.textContent = `CONTROL ${badControl.dataset.roiField}: 数値を入力してください`;
     return;
   }
   try {
