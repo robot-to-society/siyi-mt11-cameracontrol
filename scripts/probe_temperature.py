@@ -21,60 +21,38 @@ import struct
 import time
 from typing import Optional
 
+from app import thermal
 from app.camera_protocol import make_packet
 
 CMDS = {"point": 0x12, "region": 0x13, "full": 0x14}
-FLAG_DISABLE, FLAG_ONCE, FLAG_CONTINUOUS = 0, 1, 2
 STOP_HINT = "the camera answers only one TCP client: stop the UI service first (sudo systemctl stop mt11-camera-controller)"
-# Low gain measures up to 550 C, so the field is unsigned; values above this are
-# taken as negative (two's complement) temperatures - to be confirmed on hardware.
-NEGATIVE_THRESHOLD_C = 600.0
-
-
-def decode_temp(raw: int) -> float:
-    celsius = raw / 100.0
-    if celsius > NEGATIVE_THRESHOLD_C:
-        celsius = (raw - 65536) / 100.0
-    return round(celsius, 2)
 
 
 def build_request(kind: str, flag: int, point=(0, 0), box=(0, 0, 0, 0)) -> tuple[int, bytes]:
     if kind not in CMDS:
         raise ValueError(f"unknown measurement kind: {kind}")
-    if flag not in (FLAG_DISABLE, FLAG_ONCE, FLAG_CONTINUOUS):
-        raise ValueError(f"invalid get_temp_flag: {flag}")
     if kind == "point":
-        return 0x12, struct.pack("<HHB", point[0], point[1], flag)
+        return 0x12, thermal.encode_point_request(point[0], point[1], flag)
     if kind == "region":
-        return 0x13, struct.pack("<HHHHB", *box, flag)
-    return 0x14, struct.pack("<B", flag)
+        return 0x13, thermal.encode_region_request(box, flag)
+    return 0x14, thermal.encode_full_frame_request(flag)
 
 
 def parse_full_frame(payload: bytes) -> Optional[dict]:
-    if len(payload) < 12:
+    frame = thermal.parse_full_frame(payload, received_at=0.0)
+    if frame is None:
         return None
-    tmax, tmin, max_x, max_y, min_x, min_y = struct.unpack("<6H", payload[:12])
-    return {"max_c": decode_temp(tmax), "min_c": decode_temp(tmin), "max_xy": (max_x, max_y), "min_xy": (min_x, min_y)}
+    return {"max_c": frame.max_c, "min_c": frame.min_c, "max_xy": frame.max_xy, "min_xy": frame.min_xy}
 
 
 def parse_point(payload: bytes) -> Optional[dict]:
-    if len(payload) < 6:
-        return None
-    temp, x, y = struct.unpack("<3H", payload[:6])
-    return {"temp_c": decode_temp(temp), "xy": (x, y)}
+    point = thermal.parse_point(payload, received_at=0.0)
+    return None if point is None else {"temp_c": point.temp_c, "xy": point.xy}
 
 
-def parse_region(payload: bytes) -> Optional[dict]:
-    if len(payload) < 20:
-        return None
-    x0, y0, x1, y1, tmax, tmin, max_x, max_y, min_x, min_y = struct.unpack("<10H", payload[:20])
-    return {
-        "box": (x0, y0, x1, y1),
-        "max_c": decode_temp(tmax),
-        "min_c": decode_temp(tmin),
-        "max_xy": (max_x, max_y),
-        "min_xy": (min_x, min_y),
-    }
+parse_region = thermal.parse_region
+decode_temp = thermal.decode_temp
+FLAG_DISABLE, FLAG_ONCE, FLAG_CONTINUOUS = thermal.FLAG_DISABLE, thermal.FLAG_ONCE, thermal.FLAG_CONTINUOUS
 
 
 PARSERS = {0x12: parse_point, 0x13: parse_region, 0x14: parse_full_frame}

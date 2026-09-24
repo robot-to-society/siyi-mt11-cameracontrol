@@ -113,6 +113,8 @@ def background_status_loop() -> None:
         try:
             camera.request_status()
             camera.request_zoom_level()
+            if camera.state.video_mode_name == "thermal":
+                camera.request_full_frame_temperature()  # 0x14 max/min overlay (~1 Hz)
             if tick % 10 == 0:
                 camera.request_video_mode()
             if tick % 5 == 0:

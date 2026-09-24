@@ -4,6 +4,8 @@ import {
   contentRect,
   detectionAt,
   detectionToDisplay,
+  labelPosition,
+  normalizedToDisplay,
   previewBox,
   toNormalized,
   trackToDisplay,
@@ -36,6 +38,9 @@ const CONN_LABELS = {
 const TRACK_COLORS = { ok: "#43d39e", warn: "#ffc34d", bad: "#ff4d5c", "": "#8f98ab" };
 const DETECTION_COLOR = "rgba(77, 208, 255, 0.7)";
 const DETECTION_HOVER_COLOR = "#4dd0ff";
+const TEMP_MAX_COLOR = "#ff4d5c";
+const TEMP_MIN_COLOR = "#4dd0ff";
+const TEMP_POINT_COLOR = "#ffc34d";
 
 const wrap = document.getElementById("video-wrap");
 const video = document.getElementById("video-el");
@@ -58,6 +63,7 @@ let hover = null; // { nx, ny }
 let flash = null; // { nx, ny, until }
 let lastClickAt = 0; // performance.now() of the last track request
 let ctrlDown = false; // Ctrl+click selects a camera-detected object
+let altDown = false; // Alt+click measures the temperature at a point (thermal view)
 
 function errorDetail(body, status) {
   const d = body?.detail;
@@ -156,6 +162,42 @@ function drawDetections(ctx, rect) {
   }
 }
 
+function thermalView() {
+  return snapshot?.video_mode === "thermal";
+}
+
+function drawTempMarker(ctx, rect, pos, color, text) {
+  const { x, y } = normalizedToDisplay(pos, rect);
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(x, y, 7, 0, 2 * Math.PI);
+  ctx.moveTo(x - 12, y);
+  ctx.lineTo(x + 12, y);
+  ctx.moveTo(x, y - 12);
+  ctx.lineTo(x, y + 12);
+  ctx.stroke();
+  ctx.font = "bold 13px sans-serif";
+  const width = ctx.measureText(text).width;
+  const at = labelPosition(x, y, width, rect);
+  ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+  ctx.fillRect(at.x - 3, at.y - 13, width + 6, 17);
+  ctx.fillStyle = color;
+  ctx.fillText(text, at.x, at.y);
+  ctx.restore();
+}
+
+function drawThermal(ctx, rect) {
+  const t = snapshot?.thermal;
+  if (!t) return;
+  if (t.frame) {
+    drawTempMarker(ctx, rect, t.frame.max, TEMP_MAX_COLOR, `MAX ${t.frame.max.c.toFixed(1)}℃`);
+    drawTempMarker(ctx, rect, t.frame.min, TEMP_MIN_COLOR, `MIN ${t.frame.min.c.toFixed(1)}℃`);
+  }
+  if (t.point) drawTempMarker(ctx, rect, t.point, TEMP_POINT_COLOR, `${t.point.c.toFixed(1)}℃`);
+}
+
 function draw() {
   // main-window rAF pauses when the tab is hidden, which would freeze the PiP overlay
   hostWindow().requestAnimationFrame(draw);
@@ -170,7 +212,19 @@ function draw() {
     const cls = (TRACK_LABELS[track.status] ?? ["", ""])[1];
     strokeRect(ctx, trackToDisplay(track, rect), TRACK_COLORS[cls], false, 3);
   }
-  if (ctrlDown && trackingAllowed()) {
+  drawThermal(ctx, rect);
+  if (altDown && thermalView()) {
+    if (hover) {
+      const h = normalizedToDisplay({ x: hover.nx, y: hover.ny }, rect);
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,255,255,0.8)";
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.arc(h.x, h.y, 9, 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.restore();
+    }
+  } else if (ctrlDown && trackingAllowed()) {
     drawDetections(ctx, rect);
   } else if (hover && trackingAllowed()) {
     const b = previewBox(hover.nx, hover.ny, rect, sw, sh, currentBoxPx());
@@ -186,16 +240,38 @@ function draw() {
 canvas.addEventListener("mousemove", (ev) => {
   hover = toNormalized(...localPoint(ev), pictureRect());
   ctrlDown = ev.ctrlKey;
+  altDown = ev.altKey;
 });
 
 // Track Ctrl in whichever window hosts the video (main page or Document PiP)
-function bindCtrlKey(win) {
-  const update = (ev) => { ctrlDown = ev.ctrlKey; };
+function bindModifierKeys(win) {
+  const update = (ev) => {
+    ctrlDown = ev.ctrlKey;
+    altDown = ev.altKey;
+    // Windows browsers focus the menu bar on a lone Alt release: suppress it over the video
+    if (ev.key === "Alt" && hover) ev.preventDefault();
+  };
   win.addEventListener("keydown", update);
   win.addEventListener("keyup", update);
-  win.addEventListener("blur", () => { ctrlDown = false; });
+  win.addEventListener("blur", () => {
+    ctrlDown = false;
+    altDown = false;
+  });
 }
-bindCtrlKey(window);
+bindModifierKeys(window);
+
+async function measureTemperature(p) {
+  if (!thermalView()) {
+    setMessage("点の温度はサーマル表示のときだけ測れます（映像タイプ → サーマル映像）", true);
+    return;
+  }
+  try {
+    const body = await postTrack("/api/thermal/point", { x: p.nx, y: p.ny });
+    setMessage(`温度を測定中: 点 [${body.point.x},${body.point.y}]（約1秒で表示）`);
+  } catch (e) {
+    setMessage(`温度の測定に失敗: ${e.message}`, true);
+  }
+}
 
 async function postTrack(url, payload) {
   const res = await fetch(url, {
@@ -239,11 +315,16 @@ canvas.addEventListener("contextmenu", (ev) => {
 canvas.addEventListener("click", (ev) => handleVideoClick(ev));
 
 async function handleVideoClick(ev) {
+  const p = toNormalized(...localPoint(ev), pictureRect());
+  if (ev.altKey) {
+    ev.preventDefault();
+    if (p) await measureTemperature(p);
+    return;
+  }
   if (!trackingAllowed()) {
     setMessage("AIトラッキングはRGBモードでのみ使えます", true);
     return;
   }
-  const p = toNormalized(...localPoint(ev), pictureRect());
   if (!p) return; // clicked on the black bars
   lastClickAt = performance.now();
   if (ev.ctrlKey) {
@@ -282,7 +363,8 @@ function onSnapshot(data) {
   if (fresh && data.ai_select_result && data.ai_select_result !== "ok") {
     setMessage(`カメラの応答: ${data.ai_select_result}`, true);
   }
-  canvas.classList.toggle("disabled", data.video_mode !== "rgb");
+  // thermal view: normal clicks are refused, but Alt+click measures temperature
+  canvas.classList.toggle("disabled", data.video_mode !== "rgb" && data.video_mode !== "thermal");
   const active = ["tracking", "tracking_any", "lost_temporarily"].includes(track?.status);
   window.dispatchEvent(new CustomEvent("ai-tracking-state", { detail: { active } }));
 }
@@ -323,7 +405,7 @@ setupDisplayModes({
   pipBtn: document.getElementById("video-pip-btn"),
   onLayoutChange: resizeCanvas,
   onMessage: setMessage,
-  onPipWindow: bindCtrlKey,
+  onPipWindow: bindModifierKeys,
 });
 resizeCanvas();
 requestAnimationFrame(draw);

@@ -21,6 +21,9 @@ class FakeCamera:
     def ai_select_point(self, x, y):
         self.calls.append(("point", x, y))
 
+    def request_point_temperature(self, x, y):
+        self.calls.append(("temp_point", x, y))
+
     def ai_cancel_tracking(self):
         self.calls.append(("cancel",))
 
@@ -239,3 +242,30 @@ def test_debug_rx_endpoint(client, monkeypatch):
     assert body["counts"]["0x5F"] == 3
     assert "firmware" in body
     assert body["detection_frames"] == 0
+
+
+class TestThermalPoint:
+    def test_alt_click_requests_point_temperature(self, client):
+        client.cam.state.video_mode_name = "thermal"
+        res = client.post("/api/thermal/point", json={"x": 0.25, "y": 0.5})
+        assert res.status_code == 200
+        assert res.json()["point"] == {"x": 480, "y": 540}
+        assert client.cam.calls == [("temp_point", 480, 540)]
+
+    def test_only_in_thermal_mode(self, client):
+        assert client.post("/api/thermal/point", json={"x": 0.5, "y": 0.5}).status_code == 409
+        assert client.cam.calls == []
+
+    def test_validation(self, client):
+        client.cam.state.video_mode_name = "thermal"
+        assert client.post("/api/thermal/point", json={"x": 1.5, "y": 0.5}).status_code == 422
+
+
+def test_snapshot_includes_thermal_overlay():
+    from app.thermal import ThermalFrame
+
+    state = CameraState(stream_width=1920, stream_height=1080, video_mode_name="thermal")
+    state.thermal_frame = ThermalFrame(21.5, 9.9, (960, 108), (192, 1079), received_at=10.0)
+    snap = video_routes.ai_snapshot(state, now=10.5)
+    assert snap["thermal"]["frame"]["max"]["c"] == 21.5
+    assert video_routes.ai_snapshot(CameraState(), now=10.5)["thermal"] is None

@@ -6,6 +6,15 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from app.tf_card import TfCardInfo, parse_tf_card
+from app.thermal import (
+    FLAG_ONCE,
+    ThermalFrame,
+    ThermalPoint,
+    encode_full_frame_request,
+    encode_point_request,
+    parse_full_frame,
+    parse_point,
+)
 from app.ai_tracking import (
     AI_MODE_RESULT,
     AI_SELECT_RESULT,
@@ -131,6 +140,8 @@ class CameraState:
     gimbal_attitude: Optional[GimbalAttitude] = None  # last 0x0D
     gimbal_mode: Optional[str] = None  # last 0x19: lock / follow / fpv
     thermal_gain: Optional[str] = None  # last 0x37 / 0x38: low / high
+    thermal_frame: Optional[ThermalFrame] = None  # last 0x14 (full-frame max/min)
+    thermal_point: Optional[ThermalPoint] = None  # last 0x12 (point temperature)
 
 
 class CameraClient:
@@ -373,6 +384,14 @@ class CameraClient:
         val = max(-1, min(1, direction))
         self.send_cmd(cmd_id=0x06, data=struct.pack("<b", val), ctrl=0x01)
 
+    def request_full_frame_temperature(self, flag: int = FLAG_ONCE) -> None:
+        """CMD 0x14: Full-Frame Temperature Measurement (TCP, ~1 Hz update)"""
+        self.send_cmd(cmd_id=0x14, data=encode_full_frame_request(flag), ctrl=0x01)
+
+    def request_point_temperature(self, x: int, y: int, flag: int = FLAG_ONCE) -> None:
+        """CMD 0x12: temperature at a point in video-stream pixels (TCP)"""
+        self.send_cmd(cmd_id=0x12, data=encode_point_request(x, y, flag), ctrl=0x01)
+
     def request_thermal_gain(self) -> None:
         """CMD 0x37: Request Thermal Imaging Gain Mode (TCP)"""
         self.send_cmd(cmd_id=0x37, data=b"", ctrl=0x01)
@@ -519,6 +538,14 @@ class CameraClient:
             track = parse_track_frame(payload, received_at=time.monotonic())
             if track is not None:
                 self.state.track = track
+        elif cmd_id == 0x14:
+            frame = parse_full_frame(payload, received_at=time.monotonic())
+            if frame is not None:
+                self.state.thermal_frame = frame
+        elif cmd_id == 0x12:
+            point = parse_point(payload, received_at=time.monotonic())
+            if point is not None:
+                self.state.thermal_point = point
         elif cmd_id in (0x37, 0x38) and len(payload) >= 1:
             self.state.thermal_gain = THERMAL_GAINS.get(payload[0], f"gain_{payload[0]}")
         elif cmd_id == 0x19 and len(payload) >= 1:

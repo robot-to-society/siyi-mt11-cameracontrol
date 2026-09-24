@@ -66,3 +66,16 @@ test("detectionToDisplay maps corner box to picture rect", () => {
   const r = { x: 100, y: 50, w: 800, h: 450 };
   assert.deepEqual(detectionToDisplay({ x0: 0.25, y0: 0.5, x1: 0.5, y1: 1 }, r), { x: 300, y: 275, w: 200, h: 225 });
 });
+
+import { labelPosition, normalizedToDisplay } from "../../app/static/video_geometry.js";
+
+test("normalizedToDisplay maps a normalized point into the picture rect", () => {
+  assert.deepEqual(normalizedToDisplay({ x: 0.5, y: 0.25 }, { x: 100, y: 50, w: 800, h: 400 }), { x: 500, y: 150 });
+});
+
+test("labelPosition keeps the label inside the picture", () => {
+  const r = { x: 0, y: 0, w: 800, h: 450 };
+  assert.deepEqual(labelPosition(400, 200, 60, r), { x: 410, y: 190 }); // default: up-right
+  assert.deepEqual(labelPosition(790, 200, 60, r), { x: 720, y: 190 }); // flips left at the right edge
+  assert.deepEqual(labelPosition(400, 5, 60, r), { x: 410, y: 32 }); // flips below at the top edge (baseline)
+});
