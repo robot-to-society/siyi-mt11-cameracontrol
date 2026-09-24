@@ -44,3 +44,20 @@ def test_sync_now(monkeypatch):
     monkeypatch.setattr(main, "time_sync", fake)
     assert TestClient(main.app).post("/api/time/sync").status_code == 200
     assert fake.requested == 1
+
+
+def test_status_includes_camera_clock(monkeypatch):
+    from app.mavlink_source import TimeSample
+
+    monkeypatch.setattr(main.time, "monotonic", lambda: 101.0)
+    monkeypatch.setattr(main.camera.state, "camera_time", (1_790_000_000_500_000, 100.0))
+    monkeypatch.setattr(main.mavlink, "latest_time", lambda: TimeSample(1_790_000_000_000_000, received_at=100.0))
+    monkeypatch.setattr(main, "time_sync", FakeTimeSync(TimeSyncStatus()))
+    body = TestClient(main.app).get("/api/status").json()
+    assert body["camera_clock"] == {"camera_unix_ms": 1_790_000_000_500, "age_s": 1.0, "gps_offset_ms": 500.0}
+
+
+def test_status_camera_clock_none(monkeypatch):
+    monkeypatch.setattr(main.camera.state, "camera_time", None)
+    monkeypatch.setattr(main, "time_sync", FakeTimeSync(TimeSyncStatus()))
+    assert TestClient(main.app).get("/api/status").json()["camera_clock"] is None

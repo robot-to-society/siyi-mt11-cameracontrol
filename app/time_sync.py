@@ -128,3 +128,20 @@ class TimeSync:
             except Exception as exc:  # noqa: BLE001
                 logger.exception("time sync step failed: %s", exc)
             self._shutdown.wait(LOOP_S)
+
+
+def camera_clock_view(
+    camera_time: Optional[tuple[int, float]], gps_sample: Optional[TimeSample], now: float
+) -> Optional[dict]:
+    """Last camera clock reading (0x40) for the UI, with its offset from GPS time when comparable."""
+    if camera_time is None:
+        return None
+    camera_us, received_at = camera_time
+    offset_ms = None
+    if gps_sample is not None and abs(received_at - gps_sample.received_at) <= SAMPLE_MAX_AGE_S:
+        offset_ms = round((camera_us - current_unix_us(gps_sample, received_at)) / 1000.0, 1)
+    return {
+        "camera_unix_ms": camera_us // 1000,
+        "age_s": round(now - received_at, 1),
+        "gps_offset_ms": offset_ms,
+    }

@@ -15,7 +15,7 @@ from app.camera_protocol import THERMAL_GAIN_RANGE_C, CameraClient
 from app.mavlink_source import MavlinkSource
 from app.roi_config import RoiConfig, load_roi_config, save_roi_config, to_control_settings
 from app.roi_controller import RoiController, RoiTarget
-from app.time_sync import TimeSync
+from app.time_sync import TimeSync, camera_clock_view
 from app.video_routes import cancel_ai_tracking_async, create_video_router
 
 
@@ -119,6 +119,7 @@ def background_status_loop() -> None:
                 camera.request_video_mode()
             if tick % 5 == 0:
                 camera.request_gimbal_mode()  # 0x19 lock / follow / fpv
+                camera.request_system_time()  # 0x40 camera clock shown in the Camera tab
             if tick % 10 == 0:
                 camera.request_tf_card_info()
                 camera.request_thermal_gain()  # 0x37 -> shown with its temperature range  # 0x49 SD card status / free space
@@ -193,6 +194,7 @@ def get_status() -> dict:
         "roi": _roi_status(),
         "vehicle": _vehicle_status(),
         "time_sync": _time_sync_status(),
+        "camera_clock": camera_clock_view(camera.state.camera_time, mavlink.latest_time(), time.monotonic()),
         "tf_card": _tf_card_status(),
         "gimbal_mode": camera.state.gimbal_mode,
         "thermal": _thermal_status(),

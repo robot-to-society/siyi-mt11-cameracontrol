@@ -130,3 +130,34 @@ def test_camera_disconnected_skips():
     cam.state.connected = False
     sync.step()
     assert cam.set_times == []
+
+
+class TestCameraClockView:
+    def test_no_reply(self):
+        from app.time_sync import camera_clock_view
+
+        assert camera_clock_view(None, None, now=10.0) is None
+
+    def test_camera_time_and_gps_offset(self):
+        from app.time_sync import camera_clock_view
+
+        # camera replied at monotonic 50.0 with a clock 250 ms ahead of GPS
+        sample = TimeSample(GPS_US, received_at=49.0)  # GPS time known 1 s earlier
+        camera_us = GPS_US + 1_000_000 + 250_000
+        view = camera_clock_view((camera_us, 50.0), sample, now=52.0)
+        assert view["camera_unix_ms"] == camera_us // 1000
+        assert view["age_s"] == 2.0
+        assert view["gps_offset_ms"] == 250.0
+
+    def test_without_gps_time(self):
+        from app.time_sync import camera_clock_view
+
+        view = camera_clock_view((GPS_US, 50.0), None, now=50.5)
+        assert view["gps_offset_ms"] is None
+        assert view["camera_unix_ms"] == GPS_US // 1000
+
+    def test_stale_gps_sample_not_compared(self):
+        from app.time_sync import camera_clock_view
+
+        view = camera_clock_view((GPS_US, 50.0), TimeSample(GPS_US, received_at=10.0), now=50.5)
+        assert view["gps_offset_ms"] is None
