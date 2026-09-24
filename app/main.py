@@ -7,11 +7,13 @@ from pathlib import Path
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from typing import Literal
+
 from pydantic import BaseModel
 
-from app.camera_protocol import CameraClient
+from app.camera_protocol import THERMAL_GAIN_RANGE_C, CameraClient
 from app.mavlink_source import MavlinkSource
-from app.roi_config import RoiConfig, load_roi_config, save_roi_config
+from app.roi_config import RoiConfig, load_roi_config, save_roi_config, to_control_settings
 from app.roi_controller import RoiController, RoiTarget
 from app.time_sync import TimeSync
 from app.video_routes import cancel_ai_tracking_async, create_video_router
@@ -48,8 +50,7 @@ mavlink = MavlinkSource(url=roi_config.mavlink_url)
 roi = RoiController(
     camera,
     mavlink,
-    rate_hz=roi_config.rate_hz,
-    yaw_offset_deg=roi_config.yaw_offset_deg,
+    settings=to_control_settings(roi_config),
 )
 
 
@@ -74,6 +75,10 @@ class VideoModePayload(BaseModel):
 
 class ZoomSetPayload(BaseModel):
     zoom: float
+
+
+class GimbalModePayload(BaseModel):
+    mode: Literal["lock", "follow", "fpv"]
 
 
 class GimbalSpeedPayload(BaseModel):
@@ -110,8 +115,11 @@ def background_status_loop() -> None:
             camera.request_zoom_level()
             if tick % 10 == 0:
                 camera.request_video_mode()
+            if tick % 5 == 0:
+                camera.request_gimbal_mode()  # 0x19 lock / follow / fpv
             if tick % 10 == 0:
-                camera.request_tf_card_info()  # 0x49 SD card status / free space
+                camera.request_tf_card_info()
+                camera.request_thermal_gain()  # 0x37 -> shown with its temperature range  # 0x49 SD card status / free space
             if tick % 60 == 0:
                 camera.request_firmware_version()  # 0.0.0 during the camera's ~30 s boot
             if tick % 30 == 0 or camera.state.stream_width == 0:
@@ -138,6 +146,17 @@ def startup_event() -> None:
     mavlink.start()
     roi.start_background()
     time_sync.start_background()
+
+
+@app.on_event("shutdown")
+def shutdown_event() -> None:
+    """Never leave the gimbal turning: ROI rate control keeps the last 0x07 speed otherwise."""
+    roi.stop()
+    roi.shutdown()
+    try:
+        camera.set_gimbal_speed(0, 0)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 @app.get("/")
@@ -173,7 +192,17 @@ def get_status() -> dict:
         "vehicle": _vehicle_status(),
         "time_sync": _time_sync_status(),
         "tf_card": _tf_card_status(),
+        "gimbal_mode": camera.state.gimbal_mode,
+        "thermal": _thermal_status(),
     }
+
+
+def _thermal_status():
+    gain = camera.state.thermal_gain
+    if gain is None:
+        return None
+    low, high = THERMAL_GAIN_RANGE_C.get(gain, (None, None))
+    return {"gain": gain, "range_min_c": low, "range_max_c": high}
 
 
 def _tf_card_status():
@@ -217,6 +246,11 @@ def _roi_status() -> dict:
         "distance_m": status.distance_m,
         "yaw_cmd_deg": status.yaw_cmd_deg,
         "pitch_cmd_deg": status.pitch_cmd_deg,
+        "mode": status.mode,
+        "gimbal_yaw_deg": status.gimbal_yaw_deg,
+        "gimbal_pitch_deg": status.gimbal_pitch_deg,
+        "speed_yaw": status.speed_yaw,
+        "speed_pitch": status.speed_pitch,
         "last_error": status.last_error,
     }
 
@@ -356,6 +390,20 @@ def api_gimbal_center() -> dict:
 
 
 
+@app.post("/api/gimbal/mode")
+def api_gimbal_mode(payload: GimbalModePayload) -> dict:
+    # ROI computes angles for Follow (yaw body-relative, pitch horizon) and re-asserts it
+    if roi.status().active_target_id is not None and payload.mode != "follow":
+        raise HTTPException(status_code=409, detail="ROI中はFollow固定です（ROIを停止してから変更してください）")
+    try:
+        camera.set_gimbal_mode_name(payload.mode)
+        time.sleep(0.1)
+        camera.request_gimbal_mode()
+    except OSError as exc:
+        raise HTTPException(status_code=502, detail=f"camera command failed: {exc}") from exc
+    return {"ok": True, "mode": payload.mode}
+
+
 @app.post("/api/zoom/speed")
 def api_zoom_speed(payload: ZoomSpeedPayload) -> dict:
     try:
@@ -421,7 +469,7 @@ def api_set_roi_config(payload: RoiConfig) -> dict:
         raise HTTPException(status_code=500, detail=f"failed to save ROI config: {exc}") from exc
     previous_url = roi_config.mavlink_url
     roi_config = payload
-    roi.configure(rate_hz=payload.rate_hz, yaw_offset_deg=payload.yaw_offset_deg)
+    roi.configure(to_control_settings(payload))
     _apply_roi_targets(payload)
     if payload.mavlink_url != previous_url:
         mavlink.restart(payload.mavlink_url)

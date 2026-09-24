@@ -122,3 +122,23 @@ def test_center_cancels_roi(client):
     client.post("/api/roi/start", json={"target_id": "roi_1"})
     client.post("/api/gimbal/center")
     assert client.ctrl.status().active_target_id is None
+
+
+def test_app_shutdown_stops_roi_and_gimbal(monkeypatch):
+    calls = []
+
+    class Roi:
+        def stop(self):
+            calls.append("roi.stop")
+
+        def shutdown(self):
+            calls.append("roi.shutdown")
+
+    class Cam:
+        def set_gimbal_speed(self, yaw, pitch):
+            calls.append(("speed", yaw, pitch))
+
+    monkeypatch.setattr(main, "roi", Roi())
+    monkeypatch.setattr(main, "camera", Cam())
+    main.shutdown_event()
+    assert calls == ["roi.stop", "roi.shutdown", ("speed", 0, 0)]

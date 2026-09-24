@@ -866,3 +866,21 @@ body.pip-body {
   margin-top: 6px;
   font-size: 12px;
 }
+
+.roi-control-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  font-size: 12px;
+}
+
+.roi-control-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.roi-control-grid .js-num-input {
+  width: 100%;
+}

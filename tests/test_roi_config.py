@@ -113,3 +113,42 @@ def test_load_keeps_custom_ids_and_order(tmp_path):
     assert ids[:2] == ["roi_2", "tower"]
     assert set(ids) >= {f"roi_{i}" for i in range(1, 11)}
     assert len(ids) == 11
+
+
+def test_control_defaults_for_old_files(tmp_path):
+    # files saved before PID control have none of the new keys
+    path = tmp_path / "roi.json"
+    path.write_text(json.dumps(valid_payload()))
+    cfg = load_roi_config(path)
+    assert cfg.control_mode == "rate"
+    assert cfg.rate_hz == 10 and cfg.target_rate_hz == 2.0
+    assert cfg.deadband_deg == 0.3 and cfg.smoothing_tau_s == 0.8
+    assert (cfg.pid_kp, cfg.pid_ki, cfg.pid_kd, cfg.max_speed) == (2.0, 0.2, 0.0, 60.0)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("control_mode", "warp"),
+        ("target_rate_hz", 0),
+        ("target_rate_hz", 20),
+        ("deadband_deg", -1),
+        ("smoothing_tau_s", 11),
+        ("pid_kp", -0.1),
+        ("max_speed", 0),
+        ("max_speed", 101),
+    ],
+)
+def test_control_validation(field, value):
+    with pytest.raises(ValidationError):
+        RoiConfig.model_validate(valid_payload(**{field: value}))
+
+
+def test_to_control_settings():
+    from app.roi_config import to_control_settings
+
+    cfg = RoiConfig.model_validate(
+        valid_payload(control_mode="angle", rate_hz=5, target_rate_hz=1, deadband_deg=0.5, yaw_offset_deg=2)
+    )
+    s = to_control_settings(cfg)
+    assert (s.mode, s.control_rate_hz, s.target_rate_hz, s.deadband_deg, s.yaw_offset_deg) == ("angle", 5, 1, 0.5, 2)

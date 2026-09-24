@@ -250,3 +250,63 @@ class TestTfCard:
             client.send_cmd(0x48, b"")
         with pytest.raises(ValueError):
             client.send_udp_cmd(0x48, b"")
+
+
+class TestGimbalAttitude:
+    def test_request_and_parse(self, monkeypatch):
+        import app.camera_protocol as cp
+
+        monkeypatch.setattr(cp.time, "monotonic", lambda: 12.0)
+        client = RecordingClient()
+        client.request_gimbal_attitude()
+        assert client.sent == [("tcp", 0x0D, b"")]
+        client._handle_frame(0x0D, struct.pack("<hhhhhh", 905, -300, 5, 0, 0, 0))
+        att = client.state.gimbal_attitude
+        assert (att.yaw, att.pitch, att.roll) == pytest.approx((90.5, -30.0, 0.5))
+        assert att.received_at == 12.0
+
+    def test_short_payload_ignored(self):
+        client = CameraClient()
+        client._handle_frame(0x0D, b"\x00\x00")
+        assert client.state.gimbal_attitude is None
+
+
+class TestGimbalMode:
+    def test_request_0x19(self):
+        client = RecordingClient()
+        client.request_gimbal_mode()
+        assert client.sent == [("tcp", 0x19, b"")]
+
+    @pytest.mark.parametrize("raw,name", [(0, "lock"), (1, "follow"), (2, "fpv")])
+    def test_parse_0x19(self, raw, name):
+        client = CameraClient()
+        client._handle_frame(0x19, bytes([raw]))
+        assert client.state.gimbal_mode == name
+
+    def test_unknown_mode_value(self):
+        client = CameraClient()
+        client._handle_frame(0x19, b"\x07")
+        assert client.state.gimbal_mode == "mode_7"
+
+    def test_set_mode_by_name(self):
+        client = RecordingClient()
+        client.set_gimbal_mode_name("fpv")
+        client.set_gimbal_mode_name("lock")
+        assert client.sent == [("tcp", 0x0C, b"\x05"), ("tcp", 0x0C, b"\x03")]
+        with pytest.raises(ValueError):
+            client.set_gimbal_mode_name("sport")
+
+
+class TestThermalGain:
+    def test_request_0x37(self):
+        client = RecordingClient()
+        client.request_thermal_gain()
+        assert client.sent == [("tcp", 0x37, b"")]
+
+    @pytest.mark.parametrize("cmd", [0x37, 0x38])  # request ACK and set ACK carry Ir_gain
+    def test_parse_gain(self, cmd):
+        client = CameraClient()
+        client._handle_frame(cmd, b"\x01")
+        assert client.state.thermal_gain == "high"
+        client._handle_frame(cmd, b"\x00")
+        assert client.state.thermal_gain == "low"
