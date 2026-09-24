@@ -49,3 +49,59 @@ def test_decode_single_byte_and_unexpected_length():
     bad = decode_reply(0x3B, b"\x01\x02\x03")
     assert bad["length_ok"] is False
     assert bad["values"] is None
+
+
+class FakeSocket:
+    """Scripted camera: replies per CMD_ID, or drops the connection."""
+
+    def __init__(self, behaviour):
+        self.behaviour = behaviour  # cmd -> bytes payload | "close" | None
+        self.pending = b""
+        self.closed = False
+
+    def settimeout(self, _t):
+        pass
+
+    def sendall(self, packet):
+        if self.closed:
+            raise BrokenPipeError(32, "Broken pipe")
+        cmd = packet[7]
+        action = self.behaviour.get(cmd)
+        if action == "close":
+            self.closed = True
+        elif action is not None:
+            self.pending += make_packet(cmd, action, seq=0)
+
+    def recv(self, _n):
+        if self.closed:
+            return b""
+        if not self.pending:
+            import socket
+
+            raise socket.timeout()
+        data, self.pending = self.pending, b""
+        return data
+
+    def close(self):
+        pass
+
+
+def test_probe_uses_fresh_connection_per_command_and_reports_drops(monkeypatch):
+    import scripts.probe_thermal_readonly as probe_mod
+
+    behaviour = {0x37: b"\x01", 0x39: "close", 0x3B: None}
+    opened = []
+
+    def connect(addr, timeout=None):
+        sock = FakeSocket(behaviour)
+        opened.append(sock)
+        return sock
+
+    monkeypatch.setattr(probe_mod.socket, "create_connection", connect)
+    results, frames_seen = probe_mod.probe("cam", 37260, wait_s=0.05)
+    by_cmd = {r["cmd"]: r for r in results}
+    assert len(opened) == len(probe_mod.PROBES)  # one connection per command
+    assert by_cmd["0x37"]["status"] == "answered" and by_cmd["0x37"]["values"] == {"ir_gain": 1}
+    assert by_cmd["0x39"]["status"] == "connection closed by camera"
+    assert by_cmd["0x3B"]["status"] == "no reply"
+    assert frames_seen == 1

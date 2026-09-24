@@ -6,7 +6,8 @@
 Coordinates are video-stream pixels (SDK example: centre of 1920x1080 = 960,540).
 Switch the video to Thermal first (Camera tab) so the thermal core is measuring.
 
-Usage (on the Pi):
+Usage (on the Pi). The camera answers only one TCP client, so stop the UI service first
+(sudo systemctl stop mt11-camera-controller; start it again afterwards):
     python -m scripts.probe_temperature                      # full frame, once per second x 5
     python -m scripts.probe_temperature --kind point --point 960 540 --count 10
     python -m scripts.probe_temperature --kind region --box 800 400 1120 680 --continuous
@@ -24,6 +25,7 @@ from app.camera_protocol import make_packet
 
 CMDS = {"point": 0x12, "region": 0x13, "full": 0x14}
 FLAG_DISABLE, FLAG_ONCE, FLAG_CONTINUOUS = 0, 1, 2
+STOP_HINT = "the camera answers only one TCP client: stop the UI service first (sudo systemctl stop mt11-camera-controller)"
 # Low gain measures up to 550 C, so the field is unsigned; values above this are
 # taken as negative (two's complement) temperatures - to be confirmed on hardware.
 NEGATIVE_THRESHOLD_C = 600.0
@@ -120,6 +122,7 @@ def run(args: argparse.Namespace) -> None:
         sock.sendall(make_packet(cmd, payload, seq=seq))
 
     received = 0
+    frames_seen = 0
     try:
         if args.continuous:
             send(data)
@@ -129,13 +132,16 @@ def run(args: argparse.Namespace) -> None:
             deadline = time.monotonic() + args.interval
             while time.monotonic() < deadline:
                 for got, payload in _read_frames(sock, buffer):
+                    frames_seen += 1
                     if got == cmd:
                         _print_reply(cmd, payload)
                         received += 1
                     elif args.verbose:
                         # other traffic (e.g. a reply under a different CMD_ID)
                         print(f"  other frame 0x{got:02X} len={len(payload)} hex={payload[:40].hex()}")
-        if received == 0:
+        if frames_seen == 0:
+            print("camera sent nothing on this connection: " + STOP_HINT)
+        elif received == 0:
             print(f"no reply to 0x{cmd:02X}: is the video in Thermal mode? (Camera tab -> サーマル映像)")
             print("  try --continuous, and --verbose to see every frame the camera sends")
     except KeyboardInterrupt:
