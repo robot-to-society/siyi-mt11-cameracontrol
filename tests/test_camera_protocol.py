@@ -310,3 +310,22 @@ class TestThermalGain:
         assert client.state.thermal_gain == "high"
         client._handle_frame(cmd, b"\x00")
         assert client.state.thermal_gain == "low"
+
+
+class TestThermalMeasurement:
+    def test_requests(self):
+        client = RecordingClient()
+        client.request_full_frame_temperature()
+        client.request_point_temperature(960, 540)
+        assert client.sent == [("tcp", 0x14, b"\x01"), ("tcp", 0x12, bytes.fromhex("c0031c0201"))]
+
+    def test_handlers(self, monkeypatch):
+        import app.camera_protocol as cp
+
+        monkeypatch.setattr(cp.time, "monotonic", lambda: 3.0)
+        client = CameraClient()
+        client._handle_frame(0x14, bytes.fromhex("6a08e6033e062000f4016203"))
+        client._handle_frame(0x12, bytes.fromhex("4406c0031c02"))
+        assert client.state.thermal_frame.max_c == pytest.approx(21.54)
+        assert client.state.thermal_point.temp_c == pytest.approx(16.04)
+        assert client.state.thermal_point.received_at == 3.0

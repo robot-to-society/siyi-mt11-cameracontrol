@@ -84,6 +84,7 @@ function setStatusUI(data) {
 
   updateRoiUI(data.roi, data.vehicle);
   updateTimeSyncUI(data.time_sync);
+  updateCameraClockUI(data.camera_clock);
   updateTfCardUI(data.tf_card);
   updateGimbalModeUI(data.gimbal_mode);
   updateThermalUI(data.thermal);
@@ -163,6 +164,35 @@ function updateTfCardUI(tf) {
   el.textContent = [problem, capacity].filter(Boolean).join(" / ") || tf.status;
   const low = tf.free_percent !== null && tf.free_percent < TF_LOW_PERCENT;
   el.classList.toggle("roi-error", Boolean(problem) || low);
+}
+
+const CLOCK_WARN_MS = 1000; // photo timestamps are 1 s resolution
+const CLOCK_REPLY_MAX_AGE_S = 15;
+
+function formatClock(ms, timeZone) {
+  return new Date(ms).toLocaleString("sv-SE", { timeZone, hour12: false });
+}
+
+function updateCameraClockUI(clock) {
+  const el = document.getElementById("camera-clock-text");
+  if (!el) return;
+  if (!clock || clock.age_s > CLOCK_REPLY_MAX_AGE_S) {
+    el.textContent = "取得できません（0x40 未応答：ファームウェア未対応の可能性）";
+    el.classList.add("roi-error");
+    return;
+  }
+  const nowMs = clock.camera_unix_ms + clock.age_s * 1000; // camera clock now (extrapolated)
+  const local = formatClock(nowMs);
+  const utc = formatClock(nowMs, "UTC").slice(11);
+  let text = `${local}（UTC ${utc}）`;
+  const off = clock.gps_offset_ms;
+  if (off !== null) {
+    text += ` / GPSとの差 ${off >= 0 ? "+" : ""}${Math.round(off)} ms`;
+  } else {
+    text += " / GPS時刻なし（比較不可）";
+  }
+  el.textContent = text;
+  el.classList.toggle("roi-error", off !== null && Math.abs(off) >= CLOCK_WARN_MS);
 }
 
 function updateTimeSyncUI(ts) {

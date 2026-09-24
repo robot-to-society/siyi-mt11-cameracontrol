@@ -7,8 +7,10 @@ Sends ONLY payload-less "request" commands and logs the replies. Nothing is set.
   0x46  threshold precision       0x33  thermal output mode
 Any other CMD_ID (e.g. 0x48 = format SD card) is refused before a packet is built.
 
-Usage (on the Pi; the camera UI service may keep running):
-    python -m scripts.probe_thermal_readonly --host 192.168.144.25 [--json out.json]
+Usage (on the Pi). The camera answers only one TCP client, so stop the UI service first:
+    sudo systemctl stop mt11-camera-controller
+    python -m scripts.probe_thermal_readonly --host 192.168.144.25 [--json out.json]  # one TCP connection per command
+    sudo systemctl start mt11-camera-controller
 
 A reply with the expected length strongly suggests the command exists on this firmware.
 Back up the SD card first anyway: MT11 reuses some SIYI IDs with other meanings (e.g. 0x49).
@@ -22,6 +24,8 @@ import time
 from typing import Callable, Optional
 
 from app.camera_protocol import make_packet
+
+STOP_HINT = "the camera answers only one TCP client: stop the UI service first (sudo systemctl stop mt11-camera-controller)"
 
 
 def _u8(name: str) -> tuple[int, Callable[[bytes], dict]]:
@@ -77,6 +81,8 @@ def _read_frames(sock: socket.socket, buffer: bytearray) -> list[tuple[int, byte
         chunk = sock.recv(4096)
     except socket.timeout:
         return []
+    if not chunk:
+        raise ConnectionResetError("connection closed by camera")
     buffer.extend(chunk)
     frames = []
     while True:
@@ -91,28 +97,40 @@ def _read_frames(sock: socket.socket, buffer: bytearray) -> list[tuple[int, byte
         del buffer[: 10 + data_len]
 
 
-def probe(host: str, port: int, wait_s: float) -> list[dict]:
+def _probe_one(host: str, port: int, cmd_id: int, wait_s: float) -> tuple[dict, int]:
+    """One fresh TCP connection per command: the MT11 may drop the link on unknown commands."""
+    entry = {"cmd": f"0x{cmd_id:02X}", "name": PROBES[cmd_id][0], "status": "no reply"}
+    frames_seen = 0
     sock = socket.create_connection((host, port), timeout=3.0)
     sock.settimeout(0.2)
     buffer = bytearray()
-    results = []
     try:
-        for seq, cmd_id in enumerate(PROBES, start=1):
-            sock.sendall(build_probe_packet(cmd_id, seq))
-            reply: Optional[bytes] = None
-            deadline = time.monotonic() + wait_s
-            while reply is None and time.monotonic() < deadline:
-                for got_id, payload in _read_frames(sock, buffer):
-                    if got_id == cmd_id:
-                        reply = payload
-                        break
-            entry = {"cmd": f"0x{cmd_id:02X}", "name": PROBES[cmd_id][0], "answered": reply is not None}
-            if reply is not None:
-                entry.update({"len": len(reply), "hex": reply.hex(), **decode_reply(cmd_id, reply)})
-            results.append(entry)
+        sock.sendall(build_probe_packet(cmd_id, seq=1))
+        deadline = time.monotonic() + wait_s
+        while time.monotonic() < deadline:
+            for got_id, payload in _read_frames(sock, buffer):
+                frames_seen += 1
+                if got_id == cmd_id:
+                    entry.update(
+                        {"status": "answered", "len": len(payload), "hex": payload.hex(), **decode_reply(cmd_id, payload)}
+                    )
+                    return entry, frames_seen
+    except ConnectionError:  # BrokenPipe / ConnectionReset / closed by peer
+        entry["status"] = "connection closed by camera"
     finally:
         sock.close()
-    return results
+    return entry, frames_seen
+
+
+def probe(host: str, port: int, wait_s: float) -> tuple[list[dict], int]:
+    """Returns (results, number of frames of any kind received)."""
+    results, frames_seen = [], 0
+    for cmd_id in PROBES:
+        entry, seen = _probe_one(host, port, cmd_id, wait_s)
+        results.append(entry)
+        frames_seen += seen
+        time.sleep(0.3)  # let the camera settle before reconnecting
+    return results, frames_seen
 
 
 def main() -> None:
@@ -123,10 +141,12 @@ def main() -> None:
     parser.add_argument("--json", help="save results to this file")
     args = parser.parse_args()
 
-    results = probe(args.host, args.port, args.wait)
+    results, frames_seen = probe(args.host, args.port, args.wait)
+    if frames_seen == 0:
+        print("camera sent nothing on this connection: " + STOP_HINT)
     for r in results:
-        if not r["answered"]:
-            print(f"{r['cmd']} {r['name']:<28} no reply")
+        if r["status"] != "answered":
+            print(f"{r['cmd']} {r['name']:<28} {r['status']}")
             continue
         mark = "OK " if r["length_ok"] else "LEN?"
         print(f"{r['cmd']} {r['name']:<28} {mark} len={r['len']} hex={r['hex']}")

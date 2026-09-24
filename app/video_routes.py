@@ -28,6 +28,7 @@ from app.ai_tracking import (
     pick_detection,
 )
 from app.camera_protocol import CameraState
+from app.thermal import thermal_overlay
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,11 @@ class TrackDetectionPayload(BaseModel):
     y: float = Field(ge=0.0, le=1.0)
 
 
+class ThermalPointPayload(BaseModel):
+    x: float = Field(ge=0.0, le=1.0)
+    y: float = Field(ge=0.0, le=1.0)
+
+
 class AiTrackingPayload(BaseModel):
     enable: bool
 
@@ -77,6 +83,10 @@ def ai_snapshot(state: CameraState, now: float) -> dict:
         "stream": {"width": state.stream_width, "height": state.stream_height},
         "video_mode": state.video_mode_name,
         "detections": _latest_detections(state, now),
+        "thermal": thermal_overlay(
+            state.thermal_frame, state.thermal_point, state.stream_width, state.stream_height, now,
+            state.video_mode_name,
+        ),
     }
 
 
@@ -182,6 +192,22 @@ def create_video_router(get_camera: Callable[[], Any], get_roi: Callable[[], Any
         if payload.enable:
             return start_tracking(0.5, 0.5, LEGACY_CENTER_BOX_PX)
         return api_ai_cancel()
+
+    @router.post("/api/thermal/point")
+    def api_thermal_point(payload: ThermalPointPayload) -> dict:
+        """Alt+click: measure the temperature at a point (0x12); the reading arrives via SSE."""
+        camera = get_camera()
+        state = camera.state
+        if state.video_mode_name != "thermal":
+            raise HTTPException(status_code=409, detail="point temperature is available in thermal view only")
+        if state.stream_width <= 1 or state.stream_height <= 1:
+            raise HTTPException(status_code=503, detail="stream resolution unknown (waiting for 0x20)")
+        x, y = normalized_to_stream_point(payload.x, payload.y, state.stream_width, state.stream_height)
+        try:
+            camera.request_point_temperature(x, y)
+        except OSError as exc:
+            raise HTTPException(status_code=502, detail=f"camera command failed: {exc}") from exc
+        return {"ok": True, "point": {"x": x, "y": y}}
 
     @router.post("/api/ai/cancel")
     def api_ai_cancel() -> dict:

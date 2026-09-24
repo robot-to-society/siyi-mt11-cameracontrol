@@ -69,3 +69,20 @@ export function detectionToDisplay(d, rect) {
     h: (d.y1 - d.y0) * rect.h,
   };
 }
+
+/** Normalized {x, y} (0..1 of the stream) -> display point. */
+export function normalizedToDisplay(p, rect) {
+  return { x: rect.x + p.x * rect.w, y: rect.y + p.y * rect.h };
+}
+
+const LABEL_OFFSET = 10;
+const LABEL_HEIGHT = 17;
+
+/** Text baseline position next to a marker, flipped so it stays inside the picture. */
+export function labelPosition(px, py, textWidth, rect) {
+  let x = px + LABEL_OFFSET;
+  if (x + textWidth > rect.x + rect.w) x = px - LABEL_OFFSET - textWidth;
+  let y = py - LABEL_OFFSET;
+  if (y - LABEL_HEIGHT < rect.y) y = py + LABEL_OFFSET + LABEL_HEIGHT;
+  return { x, y };
+}
