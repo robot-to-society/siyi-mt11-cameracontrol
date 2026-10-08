@@ -22,7 +22,7 @@ UniPod MT11 向けのシンプルなダークUIです。
 ## Setup
 
 ```bash
-cd /home/pi/github/siyi-mt11-cameracontrol
+cd /home/pi/siyi-mt11-cameracontrol
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -40,7 +40,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 ## systemd service
 
 サービスファイル: `deploy/mt11-camera-ui.service`
-（`/home/pi/github/siyi-mt11-cameracontrol` 配置前提）
+（`/home/pi/siyi-mt11-cameracontrol` 配置前提。別の場所やユーザー名の場合は `WorkingDirectory` / `ExecStart` / `User` を書き換える）
 
 ```bash
 sudo cp deploy/mt11-camera-ui.service /etc/systemd/system/
@@ -162,7 +162,7 @@ Android 端末の映像を使うときは、さらにラズパイの UDP（ポ�
 
 #### Android リレーの導入（ラズパイ）
 
-[android-streaming](https://github.com/robot-to-society/android-streaming) を `/home/pi/github/android-streaming` に置き、その README の手順で venv と `vendor/scrcpy-server-v5.0` を用意します。端末側は USB デバッグを有効にし、接続時のダイアログで許可してください。
+[android-streaming](https://github.com/robot-to-society/android-streaming) を `/home/pi/android-streaming`（本リポジトリと同じ `$HOME` 直下）に置き、その README の手順で venv と `vendor/scrcpy-server-v5.0` を用意します。端末側は USB デバッグを有効にし、接続時のダイアログで許可してください。
 
 ```bash
 sudo cp deploy/android-stream.service /etc/systemd/system/

@@ -7,11 +7,11 @@ Wants=network-online.target
 Type=simple
 User=pi
 # Repository: https://github.com/robot-to-society/android-streaming (sibling checkout)
-WorkingDirectory=/home/pi/github/android-streaming
+WorkingDirectory=/home/pi/android-streaming
 Environment=PYTHONUNBUFFERED=1
 # Signalling stays on localhost: the camera UI proxies /api/video/whep to it. Media (ICE) uses the Pi's own
 # interfaces, so the browser must reach the Pi over UDP. --no-stay-awake: MIUI refuses the setting anyway.
-ExecStart=/home/pi/github/android-streaming/.venv/bin/python -m android_stream.main --host 127.0.0.1 --port 8080 --no-stay-awake
+ExecStart=/home/pi/android-streaming/.venv/bin/python -m android_stream.main --host 127.0.0.1 --port 8080 --no-stay-awake
 Restart=always
 RestartSec=3
 
