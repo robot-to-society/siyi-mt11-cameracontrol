@@ -16,6 +16,7 @@ UniPod MT11 向けのシンプルなダークUIです。
 - SD カードの状態と空き容量の表示（0x49、10 秒ごと。空き 10% 未満や異常は赤字）。SD カードをフォーマットする 0x48 は、誤送信を防ぐためアプリから送れないようにしています
 - GPS ROI：登録した座標へカメラを向け続ける（ジョイスティックのボタンに割当可）
 - ライブ映像表示（RTSP → WebRTC）と、映像クリックでの AI トラッキング開始・追跡枠の表示
+- 映像ソースの自動切替：MT11 の RTSP に接続できないときは USB 接続した Android 端末の画面（`android-streaming` リレー）を表示。どちらも無ければ 15 秒おきに再スキャン
 - メインストリームのエンコード切替（H.264 / H.265、720p〜4K）
 
 ## Setup
@@ -126,9 +127,52 @@ python -m scripts.fake_vehicle --lat 35.xxxxxxx --lon 139.xxxxxxx --alt 40 --hea
 ```
 MT11 --RTSP video1--> MediaMTX（ラズパイ、再エンコードなし）--WebRTC--> ブラウザ
 ブラウザ --WHEP（/api/video/whep、本アプリが中継）--> MediaMTX 127.0.0.1:8889
+                                                  └--> android-stream 127.0.0.1:8080（MT11 が不通のとき）
 ```
 
 ブラウザから届く必要があるのは、本アプリの 8000（HTTP）と、映像用の 8189（UDP、通らなければ TCP）です。
+Android 端末の映像を使うときは、さらにラズパイの UDP（ポートは動的、TCP フォールバックなし）が通る必要があります。
+
+### 映像ソースの自動切替（MT11 → Android）
+
+本アプリがバックグラウンドで映像ソースを探し、ブラウザは常に `/api/video/whep` に接続するだけで、選ばれたソースの映像を受け取ります。
+
+1. MT11 の RTSP（`rtsp://<カメラIP>:8554/video1` に DESCRIBE）に応答があれば **MT11**
+2. 無ければ、`android-streaming` リレーの `GET /status` が `streaming: true` なら **Android**（USB 接続した端末の画面）
+3. どちらも無ければ **NO SOURCE** とし、**15 秒**待ってから 1. と 2. をもう一度スキャン
+4. ソースが選ばれている間は 3 秒ごとに再確認し、**2 回続けて**応答が無ければ次を探す（一時的な取りこぼしで映像を切らないため）。Android 表示中に MT11 が復帰したら MT11 に戻る
+
+- LIVE の右上に現在のソース（MT11 / ANDROID / NO SOURCE）が出ます。隣のセレクトで **AUTO / MT11 / ANDROID** に固定できます。固定中は疎通確認の結果に関わらずそのソースへ接続し、他のソースへは切り替えません（MediaMTX 側だけが見えている構成などで使います）。
+- Android 端末を使わない構成では `MT11_ANDROID_URL=` （空）で Android の探索を止められます。
+- Camera IP は IP アドレスのみ受け付けます（疎通確認の RTSP URL にも使うため）。
+- ソースが切り替わると、ブラウザは自動で接続し直します（SSE `/api/ai/events` の `video_source` で通知）。
+- Android 表示中は、クリックでの AI トラッキング、検出枠、温度表示は無効になります（これらは MT11 の映像に対する操作のため）。
+- 状態は `GET /api/video/source`、固定は `POST /api/video/source {"mode": "auto"|"mt11"|"android"}` でも操作できます。
+
+環境変数（`deploy/mt11-camera-ui.service` の `Environment=` で指定）：
+
+| 変数 | 既定 | 説明 |
+|---|---|---|
+| `MT11_RTSP_URL` | `rtsp://{host}:8554/video1` | 疎通確認に使う RTSP URL。`{host}` は Camera IP に置き換わる |
+| `MT11_ANDROID_URL` | `http://127.0.0.1:8080` | `android-streaming` リレーの URL。空にすると Android ソースを無効化 |
+| `MT11_ANDROID_TOKEN` | なし | リレーを `--token` 付きで起動したときの値 |
+| `MT11_VIDEO_RESCAN_S` | `15` | 両方ダメだったときの再スキャン間隔（秒） |
+| `MT11_VIDEO_CHECK_S` | `3` | ソース選択中の再確認間隔（秒） |
+| `MT11_PROBE_TIMEOUT_S` | `2` | 疎通確認のタイムアウト（秒） |
+
+#### Android リレーの導入（ラズパイ）
+
+[android-streaming](https://github.com/robot-to-society/android-streaming) を `/home/pi/github/android-streaming` に置き、その README の手順で venv と `vendor/scrcpy-server-v5.0` を用意します。端末側は USB デバッグを有効にし、接続時のダイアログで許可してください。
+
+```bash
+sudo cp deploy/android-stream.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now android-stream
+curl -s http://127.0.0.1:8080/status   # "streaming": true なら端末の画面を配信中
+```
+
+- リレーは端末が外れていても常駐し、数秒おきに再接続を試みます（`/status` の `last_error` に理由が出ます）。
+- 端末の画面が消えると映像が止まります。端末の開発者オプション「スリープモードにしない」を有効にしてください（MIUI では `stay_awake` オプションが効きません）。
 
 ### MediaMTX の導入（ラズパイ）
 

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -5,6 +7,9 @@ import app.main as main
 import app.video_routes as video_routes
 from app.ai_tracking import Detection, DetectionFrame, StreamBox, TrackTarget
 from app.camera_protocol import CameraState
+from app.video_source import MODES, SourceStatus, VideoSourceSettings
+
+SRC = {"source": "mt11", "mode": "auto"}
 
 
 class FakeCamera:
@@ -42,14 +47,42 @@ class FakeRoi:
         self.stopped += 1
 
 
+class FakeVideoSource:
+    """Stands in for VideoSourceMonitor: fixed source, records mode changes."""
+
+    def __init__(self, source="mt11", mode="auto"):
+        self.settings = VideoSourceSettings(
+            rtsp_url_template="rtsp://{host}:8554/video1",
+            android_url="http://127.0.0.1:8080",
+            android_token="tok",
+            rescan_s=15.0,
+            check_s=3.0,
+            probe_timeout_s=2.0,
+        )
+        self._status = SourceStatus(source=source, mode=mode, mt11_ok=source == "mt11", scanned_at=1.0, next_scan_at=4.0, scans=1)
+        self.modes = []
+
+    @property
+    def status(self):
+        return self._status
+
+    def set_mode(self, mode):
+        if mode not in MODES:
+            raise ValueError(mode)
+        self.modes.append(mode)
+        self._status = SourceStatus(source=mode if mode != "auto" else "mt11", mode=mode)
+        return self._status
+
+
 @pytest.fixture
 def client(monkeypatch):
-    cam, roi = FakeCamera(), FakeRoi()
+    cam, roi, source = FakeCamera(), FakeRoi(), FakeVideoSource()
     monkeypatch.setattr(main, "camera", cam)
     monkeypatch.setattr(main, "roi", roi)
+    monkeypatch.setattr(main, "video_source", source)
     monkeypatch.setattr(video_routes.time, "sleep", lambda _s: None)
     tc = TestClient(main.app)
-    tc.cam, tc.roi = cam, roi
+    tc.cam, tc.roi, tc.source = cam, roi, source
     return tc
 
 
@@ -114,14 +147,14 @@ class TestAiSnapshot:
     def test_fresh_track_included(self):
         state = CameraState(stream_width=1920, stream_height=1080)
         state.track = TrackTarget(0.1, 0.2, 0.3, 0.4, "car", "tracking", received_at=10.0)
-        snap = video_routes.ai_snapshot(state, now=10.5)
+        snap = video_routes.ai_snapshot(state, now=10.5, video_source=SRC)
         assert snap["track"]["status"] == "tracking"
         assert snap["stream"] == {"width": 1920, "height": 1080}
 
     def test_stale_track_dropped(self):
         state = CameraState()
         state.track = TrackTarget(0.1, 0.2, 0.3, 0.4, "car", "tracking", received_at=10.0)
-        assert video_routes.ai_snapshot(state, now=11.5)["track"] is None
+        assert video_routes.ai_snapshot(state, now=11.5, video_source=SRC)["track"] is None
 
 
 class TestWhepProxy:
@@ -231,9 +264,9 @@ class TestTrackDetection:
 def test_snapshot_includes_recent_detections():
     state = CameraState()
     state.detection_history = (frame_at(10.0, PERSON),)
-    snap = video_routes.ai_snapshot(state, now=10.3)
+    snap = video_routes.ai_snapshot(state, now=10.3, video_source=SRC)
     assert snap["detections"][0]["class_name"] == "person"
-    assert video_routes.ai_snapshot(state, now=11.0)["detections"] == []
+    assert video_routes.ai_snapshot(state, now=11.0, video_source=SRC)["detections"] == []
 
 
 def test_debug_rx_endpoint(client, monkeypatch):
@@ -266,6 +299,148 @@ def test_snapshot_includes_thermal_overlay():
 
     state = CameraState(stream_width=1920, stream_height=1080, video_mode_name="thermal")
     state.thermal_frame = ThermalFrame(21.5, 9.9, (960, 108), (192, 1079), received_at=10.0)
-    snap = video_routes.ai_snapshot(state, now=10.5)
+    snap = video_routes.ai_snapshot(state, now=10.5, video_source=SRC)
     assert snap["thermal"]["frame"]["max"]["c"] == 21.5
-    assert video_routes.ai_snapshot(CameraState(), now=10.5)["thermal"] is None
+    assert video_routes.ai_snapshot(CameraState(), now=10.5, video_source=SRC)["thermal"] is None
+
+
+def test_snapshot_includes_video_source():
+    snap = video_routes.ai_snapshot(CameraState(), now=1.0, video_source={"source": "android", "mode": "auto"})
+    assert snap["video_source"] == {"source": "android", "mode": "auto"}
+
+
+class TestVideoSourceApi:
+    def test_get_status(self, client):
+        body = client.get("/api/video/source").json()
+        assert body["source"] == "mt11"
+        assert body["mode"] == "auto"
+        assert body["mt11_ok"] is True
+        assert "next_scan_in_s" in body
+
+    def test_set_mode(self, client):
+        res = client.post("/api/video/source", json={"mode": "android"})
+        assert res.status_code == 200
+        assert res.json()["mode"] == "android"
+        assert client.source.modes == ["android"]
+
+    def test_invalid_mode(self, client):
+        assert client.post("/api/video/source", json={"mode": "hdmi"}).status_code == 422
+        assert client.source.modes == []
+
+
+class TestWhepSourceRouting:
+    def test_android_source_wraps_offer_as_json(self, client, monkeypatch):
+        client.source._status = SourceStatus(source="android", mode="auto")
+        seen = {}
+
+        def fake_android(offer, *, url, token):
+            seen.update(offer=offer, url=url, token=token)
+            return 201, b"v=0 android answer"
+
+        monkeypatch.setattr(video_routes, "_post_sdp_android", fake_android)
+        res = client.post("/api/video/whep", content=b"v=0 offer", headers={"Content-Type": "application/sdp"})
+        assert res.status_code == 201
+        assert res.text == "v=0 android answer"
+        assert seen == {"offer": b"v=0 offer", "url": "http://127.0.0.1:8080/offer", "token": "tok"}
+
+    def test_no_source_is_503(self, client, monkeypatch):
+        client.source._status = SourceStatus(source="none", mode="auto")
+        called = []
+        monkeypatch.setattr(video_routes, "_post_sdp", lambda offer: called.append(offer))
+        res = client.post("/api/video/whep", content=b"v=0", headers={"Content-Type": "application/sdp"})
+        assert res.status_code == 503
+        assert called == []
+
+
+class TestPostSdpAndroid:
+    def test_json_round_trip(self, monkeypatch):
+        import io
+        import urllib.request
+
+        seen = {}
+
+        class FakeResponse(io.BytesIO):
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+        def fake_urlopen(req, timeout):
+            seen["url"] = req.full_url
+            seen["headers"] = {k.lower(): v for k, v in req.header_items()}
+            seen["body"] = json.loads(req.data)
+            return FakeResponse(json.dumps({"type": "answer", "sdp": "v=0 answer"}).encode())
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+        status, answer = video_routes._post_sdp_android(b"v=0 offer", url="http://127.0.0.1:8080/offer", token="tok")
+        assert (status, answer) == (201, b"v=0 answer")
+        assert seen["body"] == {"type": "offer", "sdp": "v=0 offer"}
+        assert seen["headers"]["content-type"] == "application/json"
+        assert seen["headers"]["x-stream-token"] == "tok"
+
+    def test_error_status_is_passed_through(self, monkeypatch):
+        import urllib.error
+        import urllib.request
+
+        def fake_urlopen(req, timeout):
+            raise urllib.error.HTTPError(req.full_url, 503, "busy", {}, io.BytesIO(b'{"error": "no device streaming"}'))
+
+        import io
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+        status, answer = video_routes._post_sdp_android(b"v=0", url="http://127.0.0.1:8080/offer", token=None)
+        assert status == 503
+        assert b"no device streaming" in answer
+
+    def test_malformed_answer_is_502(self, monkeypatch):
+        import io
+        import urllib.request
+
+        class FakeResponse(io.BytesIO):
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+        monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: FakeResponse(b"not json"))
+        status, _ = video_routes._post_sdp_android(b"v=0", url="http://127.0.0.1:8080/offer", token=None)
+        assert status == 502
+
+
+class TestCameraIpValidation:
+    def test_accepts_ip_addresses(self, client, monkeypatch):
+        seen = []
+        monkeypatch.setattr(client.cam, "configure_host", lambda ip: seen.append(ip), raising=False)
+        assert client.post("/api/camera/ip", json={"ip": " 192.168.144.26 "}).status_code == 200
+        assert seen == ["192.168.144.26"]
+
+    @pytest.mark.parametrize("ip", ["camera.local", "127.0.0.1:6379/\r\nFLUSHALL", "", "192.168.1"])
+    def test_rejects_non_ip_values(self, client, monkeypatch, ip):
+        seen = []
+        monkeypatch.setattr(client.cam, "configure_host", lambda ip: seen.append(ip), raising=False)
+        assert client.post("/api/camera/ip", json={"ip": ip}).status_code == 400
+        assert seen == []
+
+
+def test_whep_error_bodies_are_not_labelled_as_sdp(client, monkeypatch):
+    monkeypatch.setattr(video_routes, "_post_sdp", lambda offer: (503, b'{"error": "busy"}'))
+    res = client.post("/api/video/whep", content=b"v=0", headers={"Content-Type": "application/sdp"})
+    assert res.status_code == 503
+    assert res.headers["content-type"].startswith("text/plain")
+
+
+def test_whep_http_protocol_error_is_502(client, monkeypatch):
+    import http.client
+
+    def bad(_offer):
+        raise http.client.BadStatusLine("garbage")
+
+    monkeypatch.setattr(video_routes, "_post_sdp", bad)
+    res = client.post("/api/video/whep", content=b"v=0", headers={"Content-Type": "application/sdp"})
+    assert res.status_code == 502

@@ -1,6 +1,13 @@
-"""Video streaming (WHEP proxy to MediaMTX), click-to-track AI and main-stream encoding APIs."""
+"""Video streaming (WHEP proxy to MediaMTX or the Android relay), click-to-track AI and encoding APIs.
+
+The browser always speaks WHEP to ``/api/video/whep``; this module forwards the
+offer to whichever source the ``VideoSourceMonitor`` currently selects
+(MediaMTX for the MT11 camera, or the ``android-streaming`` relay's JSON
+``/offer``) and translates the answer back to ``application/sdp``.
+"""
 
 import asyncio
+import http.client
 import json
 import logging
 import os
@@ -10,7 +17,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import asdict
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
@@ -29,6 +36,7 @@ from app.ai_tracking import (
 )
 from app.camera_protocol import CameraState
 from app.thermal import thermal_overlay
+from app.video_source import VideoSourceMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -71,11 +79,16 @@ class EncodingPayload(BaseModel):
     preset: str = Field(min_length=1, max_length=32)
 
 
-def ai_snapshot(state: CameraState, now: float) -> dict:
+class VideoSourceModePayload(BaseModel):
+    mode: Literal["auto", "mt11", "android"]
+
+
+def ai_snapshot(state: CameraState, now: float, *, video_source: dict) -> dict:
     """What the video overlay needs, as plain JSON-able data."""
     track = state.track
     fresh = track is not None and now - track.received_at <= TRACK_MAX_AGE_S
     return {
+        "video_source": video_source,
         "track": {**asdict(track), "age_s": round(now - track.received_at, 2)} if fresh else None,
         "ai_select_result": state.ai_select_result,
         "ai_select_age_s": round(now - state.ai_select_at, 1) if state.ai_select_at else None,
@@ -101,6 +114,7 @@ def _latest_detections(state: CameraState, now: float) -> list:
 
 
 def _post_sdp(offer: bytes) -> tuple[int, bytes]:
+    """WHEP to MediaMTX (MT11 camera)."""
     req = urllib.request.Request(
         WHEP_UPSTREAM, data=offer, headers={"Content-Type": "application/sdp"}, method="POST"
     )
@@ -109,6 +123,29 @@ def _post_sdp(offer: bytes) -> tuple[int, bytes]:
             return res.status, res.read()
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read()
+
+
+def _post_sdp_android(offer: bytes, *, url: str, token: str | None) -> tuple[int, bytes]:
+    """The Android relay takes ``{"type": "offer", "sdp": ...}`` and answers JSON; present it as WHEP."""
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["X-Stream-Token"] = token
+    body = json.dumps({"type": "offer", "sdp": offer.decode(errors="replace")}).encode()
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=WHEP_TIMEOUT_S) as res:
+            raw = res.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read()
+    try:
+        answer = json.loads(raw)
+        sdp = answer["sdp"]
+        if answer.get("type") != "answer" or not isinstance(sdp, str):
+            raise ValueError("not an SDP answer")
+    except (ValueError, KeyError, TypeError) as exc:
+        logger.warning("Android relay returned an unusable answer: %s", exc)
+        return 502, b"android relay returned an unusable answer"
+    return 201, sdp.encode()
 
 
 def _cancel_quietly(camera: Any) -> None:
@@ -123,8 +160,22 @@ def cancel_ai_tracking_async(camera: Any) -> None:
     threading.Thread(target=_cancel_quietly, args=(camera,), daemon=True).start()
 
 
-def create_video_router(get_camera: Callable[[], Any], get_roi: Callable[[], Any]) -> APIRouter:
+def create_video_router(
+    get_camera: Callable[[], Any],
+    get_roi: Callable[[], Any],
+    get_video_source: Callable[[], VideoSourceMonitor],
+) -> APIRouter:
     router = APIRouter()
+
+    def source_view() -> dict:
+        monitor = get_video_source()
+        status = monitor.status
+        return {
+            "source": status.source,
+            "mode": status.mode,
+            "scanning": status.scanning,
+            "rescan_s": monitor.settings.rescan_s,
+        }
 
     def check_trackable(state: CameraState) -> None:
         if state.video_mode_name != "rgb":
@@ -223,7 +274,7 @@ def create_video_router(get_camera: Callable[[], Any], get_roi: Callable[[], Any
             last_text, last_sent = None, 0.0
             while not await request.is_disconnected():
                 now = time.monotonic()
-                text = json.dumps(ai_snapshot(get_camera().state, now))
+                text = json.dumps(ai_snapshot(get_camera().state, now, video_source=source_view()))
                 if text != last_text or now - last_sent >= SSE_KEEPALIVE_S:
                     yield f"data: {text}\n\n"
                     last_text, last_sent = text, now
@@ -281,23 +332,50 @@ def create_video_router(get_camera: Callable[[], Any], get_roi: Callable[[], Any
             chunks.append(chunk)
         return b"".join(chunks)
 
+    @router.get("/api/video/source")
+    def api_get_video_source() -> dict:
+        return get_video_source().status.as_dict(now=time.monotonic())
+
+    @router.post("/api/video/source")
+    def api_set_video_source(payload: VideoSourceModePayload) -> dict:
+        monitor = get_video_source()
+        try:
+            monitor.set_mode(payload.mode)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return monitor.status.as_dict(now=time.monotonic())
+
+    def upstream_for(source: str) -> tuple[str, Callable[[bytes], tuple[int, bytes]]]:
+        monitor = get_video_source()
+        if source == "android":
+            settings = monitor.settings
+            return "Android relay", lambda offer: _post_sdp_android(
+                offer, url=settings.android_offer_url, token=settings.android_token
+            )
+        return "MediaMTX", _post_sdp
+
     @router.post("/api/video/whep")
     async def api_whep(request: Request) -> Response:
         if not request.headers.get("content-type", "").startswith("application/sdp"):
             raise HTTPException(status_code=415, detail="Content-Type must be application/sdp")
         offer = await read_limited_body(request)
+        source = get_video_source().status.source
+        if source == "none":
+            raise HTTPException(status_code=503, detail="no video source available (scanning MT11 and Android)")
+        name, post = upstream_for(source)
         try:
-            status, answer = await run_in_threadpool(_post_sdp, offer)
+            status, answer = await run_in_threadpool(post, offer)
         except (TimeoutError, socket.timeout) as exc:
-            raise HTTPException(status_code=504, detail="video server did not answer (camera stream not ready?)") from exc
+            raise HTTPException(status_code=504, detail=f"{name} did not answer (stream not ready?)") from exc
         except urllib.error.URLError as exc:
             if isinstance(exc.reason, (TimeoutError, socket.timeout)):
-                raise HTTPException(status_code=504, detail="video server did not answer") from exc
-            logger.warning("WHEP upstream unreachable: %s", exc)
-            raise HTTPException(status_code=502, detail="video server (MediaMTX) unreachable") from exc
-        except OSError as exc:
-            logger.warning("WHEP upstream error: %s", exc)
-            raise HTTPException(status_code=502, detail="video server (MediaMTX) unreachable") from exc
-        return Response(content=answer, status_code=status, media_type="application/sdp")
+                raise HTTPException(status_code=504, detail=f"{name} did not answer") from exc
+            logger.warning("WHEP upstream (%s) unreachable: %s", name, exc)
+            raise HTTPException(status_code=502, detail=f"video server ({name}) unreachable") from exc
+        except (OSError, http.client.HTTPException) as exc:
+            logger.warning("WHEP upstream (%s) error: %s", name, exc)
+            raise HTTPException(status_code=502, detail=f"video server ({name}) unreachable") from exc
+        media_type = "application/sdp" if status < 400 else "text/plain"
+        return Response(content=answer, status_code=status, media_type=media_type)
 
     return router

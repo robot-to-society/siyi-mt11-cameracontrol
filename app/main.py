@@ -1,3 +1,4 @@
+import ipaddress
 import json
 import os
 import threading
@@ -17,6 +18,7 @@ from app.roi_config import RoiConfig, load_roi_config, save_roi_config, to_contr
 from app.roi_controller import RoiController, RoiTarget
 from app.time_sync import TimeSync, camera_clock_view
 from app.video_routes import cancel_ai_tracking_async, create_video_router
+from app.video_source import build_monitor, settings_from_env
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -56,6 +58,9 @@ roi = RoiController(
 
 # Camera clock follows GPS time from the FC (photo timestamps)
 time_sync = TimeSync(camera, mavlink)
+
+# Live video source: MT11 RTSP first, Android relay as fallback (MT11_* env overrides)
+video_source = build_monitor(settings_from_env(), lambda: camera.host)
 
 
 def _apply_roi_targets(config: RoiConfig) -> None:
@@ -149,6 +154,7 @@ def startup_event() -> None:
     mavlink.start()
     roi.start_background()
     time_sync.start_background()
+    video_source.start()
 
 
 @app.on_event("shutdown")
@@ -156,6 +162,7 @@ def shutdown_event() -> None:
     """Never leave the gimbal turning: ROI rate control keeps the last 0x07 speed otherwise."""
     roi.stop()
     roi.shutdown()
+    video_source.stop()
     try:
         camera.set_gimbal_speed(0, 0)
     except Exception:  # noqa: BLE001
@@ -311,6 +318,10 @@ def set_camera_ip(payload: CameraIpPayload) -> dict:
     ip = payload.ip.strip()
     if not ip:
         raise HTTPException(status_code=400, detail="ip is required")
+    try:
+        ip = str(ipaddress.ip_address(ip))  # the host is also spliced into the RTSP probe URL
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"not an IP address: {ip!r}") from exc
     camera.configure_host(ip)
     return {"ok": True, "ip": ip}
 
@@ -501,6 +512,6 @@ def api_roi_stop() -> dict:
 
 
 # Video / AI tracking APIs (lambdas so tests can swap camera/roi)
-app.include_router(create_video_router(lambda: camera, lambda: roi))
+app.include_router(create_video_router(lambda: camera, lambda: roi, lambda: video_source))
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

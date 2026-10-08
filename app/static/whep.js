@@ -43,6 +43,16 @@ export class WhepPlayer {
     this.close();
   }
 
+  /** Drop the current connection and negotiate again (the server switched video source). */
+  restart() {
+    if (this.stopped) {
+      this.start();
+      return;
+    }
+    clearTimeout(this.retryTimer);
+    this.connect();
+  }
+
   close() {
     if (this.pc) {
       this.pc.close();

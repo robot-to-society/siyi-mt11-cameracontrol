@@ -11,6 +11,7 @@ import {
   trackToDisplay,
 } from "./video_geometry.js";
 import { setupDisplayModes } from "./video_display.js";
+import { playerAction, sourceLabel, sourceMessage } from "./video_source.js";
 
 const WHEP_URL = "/api/video/whep"; // proxied to MediaMTX by the app
 const BOX_MIN = 32;
@@ -52,6 +53,13 @@ const boxInput = document.getElementById("video-box-px");
 const cancelBtn = document.getElementById("video-cancel-btn");
 const msgText = document.getElementById("video-msg");
 const section = document.getElementById("video-section");
+const sourceBadge = document.getElementById("video-source-badge");
+const sourceSelect = document.getElementById("video-source-mode");
+const DEFAULT_MESSAGE = msgText.textContent;
+const UPSTREAM_HINT = {
+  mt11: "MediaMTX が起動しているか確認してください",
+  android: "android-stream サービスと端末の USB 接続を確認してください",
+};
 
 // The wrap may live in a Document PiP window; draw/size with that window's clock and DPR.
 function hostWindow() {
@@ -59,6 +67,7 @@ function hostWindow() {
 }
 
 let snapshot = null; // latest /api/ai/events payload
+let source = null; // "mt11" | "android" | "none" from the server-side monitor (null until the first SSE)
 let hover = null; // { nx, ny }
 let flash = null; // { nx, ny, until }
 let lastClickAt = 0; // performance.now() of the last track request
@@ -108,7 +117,8 @@ boxInput.addEventListener("change", () => {
 
 // ── geometry helpers ────────────────────────────────────────────
 function streamSize() {
-  const s = snapshot?.stream;
+  // the camera's 0x20 resolution only describes the MT11 stream; the phone's size comes from the <video>
+  const s = source === "mt11" ? snapshot?.stream : null;
   if (s?.width > 1 && s?.height > 1) return [s.width, s.height];
   return [video.videoWidth, video.videoHeight];
 }
@@ -125,7 +135,8 @@ function localPoint(ev) {
 }
 
 function trackingAllowed() {
-  return !snapshot || snapshot.video_mode === "rgb";
+  // clicks drive the camera's tracker, so they only make sense on the MT11 picture
+  return source === "mt11" && (!snapshot || snapshot.video_mode === "rgb");
 }
 
 // ── drawing ─────────────────────────────────────────────────────
@@ -163,7 +174,7 @@ function drawDetections(ctx, rect) {
 }
 
 function thermalView() {
-  return snapshot?.video_mode === "thermal";
+  return source === "mt11" && snapshot?.video_mode === "thermal";
 }
 
 function drawTempMarker(ctx, rect, pos, color, text) {
@@ -189,7 +200,7 @@ function drawTempMarker(ctx, rect, pos, color, text) {
 }
 
 function drawThermal(ctx, rect) {
-  const t = snapshot?.thermal;
+  const t = source === "mt11" ? snapshot?.thermal : null;
   if (!t) return;
   if (t.frame) {
     drawTempMarker(ctx, rect, t.frame.max, TEMP_MAX_COLOR, `MAX ${t.frame.max.c.toFixed(1)}℃`);
@@ -351,9 +362,41 @@ cancelBtn.addEventListener("click", async () => {
   }
 });
 
+// ── video source (server-side MT11 / Android selection) ─────────
+function applySource(vs) {
+  const next = vs?.source ?? "mt11";
+  const mode = vs?.mode ?? "auto";
+  if (sourceSelect.value !== mode && document.activeElement !== sourceSelect) sourceSelect.value = mode;
+  setBadge(sourceBadge, sourceLabel(next, vs?.scanning === true));
+  const action = playerAction(source, next);
+  if (action === "none") return;
+  source = next;
+  if (action === "stop") {
+    player.stop();
+    setBadge(connBadge, ["NO VIDEO", "bad"]);
+  } else if (action === "start") {
+    player.start();
+  } else {
+    player.restart();
+  }
+  const text = sourceMessage(next, vs?.rescan_s ?? 15);
+  setMessage(text ?? DEFAULT_MESSAGE, next === "none");
+}
+
+sourceSelect.addEventListener("change", async () => {
+  const mode = sourceSelect.value;
+  sourceSelect.blur(); // let the next SSE snapshot own the displayed value
+  try {
+    await postTrack("/api/video/source", { mode });
+  } catch (e) {
+    setMessage(`映像ソースの切替に失敗: ${e.message}`, true);
+  }
+});
+
 // ── live data ───────────────────────────────────────────────────
 function onSnapshot(data) {
   snapshot = data;
+  applySource(data.video_source);
   const track = data.track;
   setBadge(trackBadge, track ? (TRACK_LABELS[track.status] ?? [track.status.toUpperCase(), ""]) : ["NO TARGET", ""]);
   const age = data.ai_select_age_s;
@@ -364,7 +407,8 @@ function onSnapshot(data) {
     setMessage(`カメラの応答: ${data.ai_select_result}`, true);
   }
   // thermal view: normal clicks are refused, but Alt+click measures temperature
-  canvas.classList.toggle("disabled", data.video_mode !== "rgb" && data.video_mode !== "thermal");
+  const clickable = source === "mt11" && (data.video_mode === "rgb" || data.video_mode === "thermal");
+  canvas.classList.toggle("disabled", !clickable);
   const active = ["tracking", "tracking_any", "lost_temporarily"].includes(track?.status);
   window.dispatchEvent(new CustomEvent("ai-tracking-state", { detail: { active } }));
 }
@@ -384,7 +428,10 @@ function openEvents() {
 const player = new WhepPlayer(WHEP_URL, video, (state) => {
   const label = CONN_LABELS[state] ?? (state.startsWith("error") ? ["NO VIDEO", "bad"] : [state.toUpperCase(), ""]);
   setBadge(connBadge, label);
-  if (state.startsWith("error")) setMessage(`映像に接続できません（${state}）。MediaMTXが起動しているか確認してください`, true);
+  if (state.startsWith("error")) {
+    const hint = UPSTREAM_HINT[source] ?? "";
+    setMessage(`映像に接続できません（${state}）。${hint}`, true);
+  }
 });
 
 setInterval(async () => {
@@ -409,5 +456,4 @@ setupDisplayModes({
 });
 resizeCanvas();
 requestAnimationFrame(draw);
-openEvents();
-player.start();
+openEvents(); // the player starts once the first snapshot tells us which source is live

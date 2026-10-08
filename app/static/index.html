@@ -30,6 +30,12 @@
             <span id="video-conn-badge" class="video-badge warn">CONNECTING</span>
             <span id="video-track-badge" class="video-badge">NO TARGET</span>
             <span id="video-latency" class="muted video-latency">-</span>
+            <span id="video-source-badge" class="video-badge">SOURCE</span>
+            <select id="video-source-mode" class="palette-select video-source-select" aria-label="映像ソース" title="映像ソース（AUTO: MT11 → Android の順に自動選択、15秒ごとに再スキャン）">
+              <option value="auto">AUTO</option>
+              <option value="mt11">MT11</option>
+              <option value="android">ANDROID</option>
+            </select>
             <button id="video-pip-btn" class="ghost-btn video-mode-btn" title="ピクチャーインピクチャー">PiP</button>
             <button id="video-full-btn" class="ghost-btn video-mode-btn" title="全画面（Escで戻る）">Full</button>
           </div>

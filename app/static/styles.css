@@ -694,6 +694,12 @@ input:focus {
   font-size: 12px;
 }
 
+.video-source-select {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
 .video-badge {
   padding: 2px 8px;
   border: 1px solid var(--line);
